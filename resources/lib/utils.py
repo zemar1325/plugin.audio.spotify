@@ -100,14 +100,6 @@ def addon_setting(settingname, set_value=None):
         return addon.getSetting(settingname)
 
 
-def kill_spotty():
-    '''make sure we don't have any (remaining) spotty processes running before we start one'''
-    if xbmc.getCondVisibility("System.Platform.Windows"):
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        subprocess.Popen(["taskkill", "/IM", "spotty.exe"], startupinfo=startupinfo, shell=True)
-    else:
-        os.system("killall spotty")
 
 
 def kill_on_timeout(done, timeout, proc):
@@ -146,11 +138,11 @@ def request_token_spotty(spotty, use_creds=True):
         try:
             args = ["-t", "--client-id", CLIENTID, "--scope", ",".join(SCOPE), "-n", "temp-spotty"]
             done = Event()
-            spotty = spotty.run_spotty(arguments=args, use_creds=use_creds)
+            spotty_bin = spotty.run_spotty(arguments=args, use_creds=use_creds)
             watcher = Thread(target=kill_on_timeout, args=(done, 5, spotty))
             watcher.daemon = True
             watcher.start()
-            stdout, stderr = spotty.communicate()
+            stdout, stderr = spotty_bin.communicate()
             done.set()
             result = None
             log_msg("request_token_spotty stdout: %s" % stdout)
@@ -487,6 +479,17 @@ class Spotty(object):
         except Exception as exc:
             log_exception(__name__, exc)
         return None
+
+    def kill_spotty(self):
+            '''make sure we don't have any (remaining) spotty processes running before we start one'''
+            if xbmc.getCondVisibility("System.Platform.Windows"):
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                subprocess.Popen(["taskkill", "/IM", "spotty.exe"], startupinfo=startupinfo, shell=True)
+            else:
+                if self.__spotty_binary != None:
+                    sp_binary_file = os.path.basename(self.__spotty_binary)
+                    os.system("killall " + sp_binary_file)
 
     def get_spotty_binary(self):
         '''find the correct spotty binary belonging to the platform'''
