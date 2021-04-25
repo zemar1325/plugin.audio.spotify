@@ -234,6 +234,7 @@ class PluginContent():
 
     def play_connect(self):
         '''start local connect playback - called from webservice when local connect player starts playback'''
+        log_msg("start local connect playback - called from webservice when local connect player starts playback", xbmc.LOGDEBUG)
         playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
         trackdetails = None
         count = 0
@@ -1088,6 +1089,7 @@ class PluginContent():
             li.addContextMenuItems(track["contextitems"], True)
             li.setProperty('do_not_analyze', 'true')
             li.setMimeType("audio/wave")
+            li.setInfo('video', {})
             list_items.append((url, li, False))
         xbmcplugin.addDirectoryItems(self.addon_handle, list_items, totalItems=len(list_items))
 
