@@ -1310,7 +1310,8 @@ class PluginContent:
         playlists2 = []
         followed_playlists = self.get_curuser_playlistids()
         for item in playlists:
-
+            if not item:
+                continue
             if item.get("images"):
                 item["thumb"] = item["images"][0]['url']
             else:
