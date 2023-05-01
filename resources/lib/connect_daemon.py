@@ -4,6 +4,7 @@
 
 from utils import log_msg, log_exception
 import xbmc
+import sys
 import threading
 import _thread
 import xbmcvfs
@@ -29,7 +30,7 @@ class ConnectDaemon(threading.Thread):
             self.join(2)
 
     def run(self):
-        log_msg("Start Spotify Connect Daemon")
+        log_msg(f"Start Spotify Connect Daemon (python version {sys.version})")
         self.__exit = False
         self.daemon_active = True
         spotty_args = ["--lms", "localhost:52308/lms", "--player-mac", "None"]

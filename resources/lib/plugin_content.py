@@ -973,7 +973,7 @@ class PluginContent:
                 track["album"] = albumdetails
             if track.get("images"):
                 thumb = track["images"][0]['url']
-            elif track['album'].get("images"):
+            elif 'album' in track and track['album'].get("images"):
                 thumb = track['album']["images"][0]['url']
             else:
                 thumb = "DefaultMusicSongs.png"
@@ -988,8 +988,8 @@ class PluginContent:
                 artists.append(artist["name"])
             track["artist"] = " / ".join(artists)
             track["genre"] = " / ".join(track["album"].get("genres", []))
-			# Allow for 'release_date' being empty.
-            release_date = track["album"].get("release_date", "0")
+            # Allow for 'release_date' being empty.
+            release_date = "0" if "album" not in track else track["album"].get("release_date", "0")
             track["year"] = 1900 if not release_date else int(
                     track["album"].get("release_date", "0").split("-")[0])
             track["rating"] = str(get_track_rating(track["popularity"]))
