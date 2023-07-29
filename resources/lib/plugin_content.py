@@ -1107,18 +1107,18 @@ class PluginContent:
         xbmcplugin.setProperty(self.addon_handle, 'FolderName', xbmc.getLocalizedString(132))
         artist_albums = self.sp.artist_albums(
                 self.artistid,
+                album_type='album,single,compilation',
+                country=self.usercountry,
                 limit=50,
-                offset=0,
-                market=self.usercountry,
-                album_type='album,single,compilation')
+                offset=0)
         count = len(artist_albums['items'])
         albumids = []
         while artist_albums['total'] > count:
             artist_albums['items'] += self.sp.artist_albums(self.artistid,
+                                                            album_type='album,single,compilation',
+                                                            country=self.usercountry,
                                                             limit=50,
-                                                            offset=count,
-                                                            market=self.usercountry,
-                                                            album_type='album,single,compilation')[
+                                                            offset=count)[
                 'items']
             count += 50
         for album in artist_albums['items']:
