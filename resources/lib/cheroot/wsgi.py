@@ -25,14 +25,7 @@ as you want in one instance by using a PathInfoDispatcher::
     server = wsgi.Server(addr, d)
 """
 
-from __future__ import absolute_import, division, print_function
-
-__metaclass__ = type
-
 import sys
-
-import six
-from six.moves import filter
 
 from . import server
 from .workers import threadpool
@@ -46,10 +39,11 @@ class Server(server.HTTPServer):
     """The version of WSGI to produce."""
 
     def __init__(
-            self, bind_addr, wsgi_app, numthreads=10, server_name=None,
-            max=-1, request_queue_size=5, timeout=10, shutdown_timeout=5,
-            accepted_queue_size=-1, accepted_queue_timeout=10,
-            peercreds_enabled=False, peercreds_resolve_enabled=False,
+        self, bind_addr, wsgi_app, numthreads=10, server_name=None,
+        max=-1, request_queue_size=5, timeout=10, shutdown_timeout=5,
+        accepted_queue_size=-1, accepted_queue_timeout=10,
+        peercreds_enabled=False, peercreds_resolve_enabled=False,
+        reuse_port=False,
     ):
         """Initialize WSGI Server instance.
 
@@ -71,20 +65,21 @@ class Server(server.HTTPServer):
                 into queue
         """
         super(Server, self).__init__(
-                bind_addr,
-                gateway=wsgi_gateways[self.wsgi_version],
-                server_name=server_name,
-                peercreds_enabled=peercreds_enabled,
-                peercreds_resolve_enabled=peercreds_resolve_enabled,
+            bind_addr,
+            gateway=wsgi_gateways[self.wsgi_version],
+            server_name=server_name,
+            peercreds_enabled=peercreds_enabled,
+            peercreds_resolve_enabled=peercreds_resolve_enabled,
+            reuse_port=reuse_port,
         )
         self.wsgi_app = wsgi_app
         self.request_queue_size = request_queue_size
         self.timeout = timeout
         self.shutdown_timeout = shutdown_timeout
         self.requests = threadpool.ThreadPool(
-                self, min=numthreads or 1, max=max,
-                accepted_queue_size=accepted_queue_size,
-                accepted_queue_timeout=accepted_queue_timeout,
+            self, min=numthreads or 1, max=max,
+            accepted_queue_size=accepted_queue_size,
+            accepted_queue_timeout=accepted_queue_timeout,
         )
 
     @property
@@ -140,8 +135,8 @@ class Gateway(server.Gateway):
         """
         response = self.req.server.wsgi_app(self.env, self.start_response)
         try:
-            for chunk in [f for f in response if f]:
-                if not isinstance(chunk, six.binary_type):
+            for chunk in filter(None, response):
+                if not isinstance(chunk, bytes):
                     raise ValueError('WSGI Applications must yield bytes')
                 self.write(chunk)
         finally:
@@ -150,14 +145,14 @@ class Gateway(server.Gateway):
             if hasattr(response, 'close'):
                 response.close()
 
-    def start_response(self, status, headers, exc_info=None):
+    def start_response(self, status, headers, exc_info=None):  # noqa: WPS238
         """WSGI callable to begin the HTTP response."""
         # "The application may call start_response more than once,
         # if and only if the exc_info argument is provided."
         if self.started_response and not exc_info:
-            raise AssertionError(
-                    'WSGI start_response called a second '
-                    'time with no exc_info.',
+            raise RuntimeError(
+                'WSGI start_response called a second '
+                'time with no exc_info.',
             )
         self.started_response = True
 
@@ -165,21 +160,19 @@ class Gateway(server.Gateway):
         # sent, start_response must raise an error, and should raise the
         # exc_info tuple."
         if self.req.sent_headers:
-            try:
-                six.reraise(*exc_info)
-            finally:
-                exc_info = None
+            value = exc_info[1]
+            raise value
 
         self.req.status = self._encode_status(status)
 
         for k, v in headers:
             if not isinstance(k, str):
                 raise TypeError(
-                        'WSGI response header key %r is not of type str.' % k,
+                    'WSGI response header key %r is not of type str.' % k,
                 )
             if not isinstance(v, str):
                 raise TypeError(
-                        'WSGI response header value %r is not of type str.' % v,
+                    'WSGI response header value %r is not of type str.' % v,
                 )
             if k.lower() == 'content-length':
                 self.remaining_bytes_out = int(v)
@@ -197,8 +190,6 @@ class Gateway(server.Gateway):
         must be of type "str" but are restricted to code points in the
         "Latin-1" set.
         """
-        if six.PY2:
-            return status
         if not isinstance(status, str):
             raise TypeError('WSGI response status is not of type str.')
         return status.encode('ISO-8859-1')
@@ -210,7 +201,7 @@ class Gateway(server.Gateway):
         data from the iterable returned by the WSGI application).
         """
         if not self.started_response:
-            raise AssertionError('WSGI write called before start_response.')
+            raise RuntimeError('WSGI write called before start_response.')
 
         chunklen = len(chunk)
         rbo = self.remaining_bytes_out
@@ -218,9 +209,9 @@ class Gateway(server.Gateway):
             if not self.req.sent_headers:
                 # Whew. We can send a 500 to the client.
                 self.req.simple_response(
-                        '500 Internal Server Error',
-                        'The requested resource returned more bytes than the '
-                        'declared Content-Length.',
+                    '500 Internal Server Error',
+                    'The requested resource returned more bytes than the '
+                    'declared Content-Length.',
                 )
             else:
                 # Dang. We have probably already sent data. Truncate the chunk
@@ -235,7 +226,7 @@ class Gateway(server.Gateway):
             rbo -= chunklen
             if rbo < 0:
                 raise ValueError(
-                        'Response body exceeds the declared Content-Length.',
+                    'Response body exceeds the declared Content-Length.',
                 )
 
 
@@ -249,32 +240,32 @@ class Gateway_10(Gateway):
         req = self.req
         req_conn = req.conn
         env = {
-                # set a non-standard environ entry so the WSGI app can know what
-                # the *real* server protocol is (and what features to support).
-                # See http://www.faqs.org/rfcs/rfc2145.html.
-                'ACTUAL_SERVER_PROTOCOL': req.server.protocol,
-                'PATH_INFO': bton(req.path),
-                'QUERY_STRING': bton(req.qs),
-                'REMOTE_ADDR': req_conn.remote_addr or '',
-                'REMOTE_PORT': str(req_conn.remote_port or ''),
-                'REQUEST_METHOD': bton(req.method),
-                'REQUEST_URI': bton(req.uri),
-                'SCRIPT_NAME': '',
-                'SERVER_NAME': req.server.server_name,
-                # Bah. "SERVER_PROTOCOL" is actually the REQUEST protocol.
-                'SERVER_PROTOCOL': bton(req.request_protocol),
-                'SERVER_SOFTWARE': req.server.software,
-                'wsgi.errors': sys.stderr,
-                'wsgi.input': req.rfile,
-                'wsgi.input_terminated': bool(req.chunked_read),
-                'wsgi.multiprocess': False,
-                'wsgi.multithread': True,
-                'wsgi.run_once': False,
-                'wsgi.url_scheme': bton(req.scheme),
-                'wsgi.version': self.version,
+            # set a non-standard environ entry so the WSGI app can know what
+            # the *real* server protocol is (and what features to support).
+            # See http://www.faqs.org/rfcs/rfc2145.html.
+            'ACTUAL_SERVER_PROTOCOL': req.server.protocol,
+            'PATH_INFO': bton(req.path),
+            'QUERY_STRING': bton(req.qs),
+            'REMOTE_ADDR': req_conn.remote_addr or '',
+            'REMOTE_PORT': str(req_conn.remote_port or ''),
+            'REQUEST_METHOD': bton(req.method),
+            'REQUEST_URI': bton(req.uri),
+            'SCRIPT_NAME': '',
+            'SERVER_NAME': req.server.server_name,
+            # Bah. "SERVER_PROTOCOL" is actually the REQUEST protocol.
+            'SERVER_PROTOCOL': bton(req.request_protocol),
+            'SERVER_SOFTWARE': req.server.software,
+            'wsgi.errors': sys.stderr,
+            'wsgi.input': req.rfile,
+            'wsgi.input_terminated': bool(req.chunked_read),
+            'wsgi.multiprocess': False,
+            'wsgi.multithread': True,
+            'wsgi.run_once': False,
+            'wsgi.url_scheme': bton(req.scheme),
+            'wsgi.version': self.version,
         }
 
-        if isinstance(req.server.bind_addr, six.string_types):
+        if isinstance(req.server.bind_addr, str):
             # AF_UNIX. This isn't really allowed by WSGI, which doesn't
             # address unix domain sockets. But it's better than nothing.
             env['SERVER_PORT'] = ''
@@ -298,12 +289,12 @@ class Gateway_10(Gateway):
 
         # Request headers
         env.update(
-                (
-                        'HTTP_{header_name!s}'.
-                        format(header_name=bton(k).upper().replace('-', '_')),
-                        bton(v),
-                )
-                for k, v in list(req.inheaders.items())
+            (
+                'HTTP_{header_name!s}'.
+                format(header_name=bton(k).upper().replace('-', '_')),
+                bton(v),
+            )
+            for k, v in req.inheaders.items()
         )
 
         # CONTENT_TYPE/CONTENT_LENGTH
@@ -333,10 +324,10 @@ class Gateway_u0(Gateway_10):
         """Return a new environ dict targeting the given wsgi.version."""
         req = self.req
         env_10 = super(Gateway_u0, self).get_environ()
-        env = dict(list(map(self._decode_key, list(env_10.items()))))
+        env = dict(env_10.items())
 
         # Request-URI
-        enc = env.setdefault(six.u('wsgi.url_encoding'), six.u('utf-8'))
+        enc = env.setdefault('wsgi.url_encoding', 'utf-8')
         try:
             env['PATH_INFO'] = req.path.decode(enc)
             env['QUERY_STRING'] = req.qs.decode(enc)
@@ -346,24 +337,9 @@ class Gateway_u0(Gateway_10):
             env['PATH_INFO'] = env_10['PATH_INFO']
             env['QUERY_STRING'] = env_10['QUERY_STRING']
 
-        env.update(list(map(self._decode_value, list(env.items()))))
+        env.update(env.items())
 
         return env
-
-    @staticmethod
-    def _decode_key(item):
-        k, v = item
-        if six.PY2:
-            k = k.decode('ISO-8859-1')
-        return k, v
-
-    @staticmethod
-    def _decode_value(item):
-        k, v = item
-        skip_keys = 'REQUEST_URI', 'wsgi.input'
-        if not six.PY2 or not isinstance(v, bytes) or k in skip_keys:
-            return k, v
-        return k, v.decode('ISO-8859-1')
 
 
 wsgi_gateways = Gateway.gateway_map()
@@ -387,7 +363,6 @@ class PathInfoDispatcher:
         # Sort the apps by len(path), descending
         def by_path_len(app):
             return len(app[0])
-
         apps.sort(key=by_path_len, reverse=True)
 
         # The path_prefix strings must start, but not end, with a slash.
@@ -419,19 +394,19 @@ class PathInfoDispatcher:
                 return app(environ, start_response)
 
         start_response(
-                '404 Not Found', [
-                        ('Content-Type', 'text/plain'),
-                        ('Content-Length', '0'),
-                ],
+            '404 Not Found', [
+                ('Content-Type', 'text/plain'),
+                ('Content-Length', '0'),
+            ],
         )
         return ['']
 
 
 # compatibility aliases
 globals().update(
-        WSGIServer=Server,
-        WSGIGateway=Gateway,
-        WSGIGateway_u0=Gateway_u0,
-        WSGIGateway_10=Gateway_10,
-        WSGIPathInfoDispatcher=PathInfoDispatcher,
+    WSGIServer=Server,
+    WSGIGateway=Gateway,
+    WSGIGateway_u0=Gateway_u0,
+    WSGIGateway_10=Gateway_10,
+    WSGIPathInfoDispatcher=PathInfoDispatcher,
 )

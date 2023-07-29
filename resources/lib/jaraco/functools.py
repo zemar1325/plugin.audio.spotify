@@ -1,11 +1,18 @@
-import functools
-import time
-import inspect
 import collections
-import types
+import functools
+import inspect
 import itertools
+import operator
+import time
+import types
+import warnings
 
 import more_itertools
+
+from typing import Callable, TypeVar
+
+
+CallableT = TypeVar("CallableT", bound=Callable[..., object])
 
 
 def compose(*funcs):
@@ -13,8 +20,9 @@ def compose(*funcs):
     Compose any number of unary functions into a single unary function.
 
     >>> import textwrap
-    >>> stripped = str.strip(textwrap.dedent(compose.__doc__))
-    >>> compose(str.strip, textwrap.dedent)(compose.__doc__) == stripped
+    >>> expected = str.strip(textwrap.dedent(compose.__doc__))
+    >>> strip_and_dedent = compose(str.strip, textwrap.dedent)
+    >>> strip_and_dedent(compose.__doc__) == expected
     True
 
     Compose also allows the innermost function to take arbitrary arguments.
@@ -91,7 +99,12 @@ def once(func):
     return wrapper
 
 
-def method_cache(method, cache_wrapper=None):
+def method_cache(
+    method: CallableT,
+    cache_wrapper: Callable[
+        [CallableT], CallableT
+    ] = functools.lru_cache(),  # type: ignore[assignment]
+) -> CallableT:
     """
     Wrap lru_cache to support storing the cache data in the object instances.
 
@@ -138,6 +151,11 @@ def method_cache(method, cache_wrapper=None):
 
     >>> a.method.cache_clear()
 
+    Same for a method that hasn't yet been called.
+
+    >>> c = MyClass()
+    >>> c.method.cache_clear()
+
     Another cache wrapper may be supplied:
 
     >>> cache = functools.lru_cache(maxsize=2)
@@ -153,16 +171,22 @@ def method_cache(method, cache_wrapper=None):
     http://code.activestate.com/recipes/577452-a-memoize-decorator-for-instance-methods/
     for another implementation and additional justification.
     """
-    cache_wrapper = cache_wrapper or functools.lru_cache()
 
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self: object, *args: object, **kwargs: object) -> object:
         # it's the first call, replace the method with a cached, bound method
-        bound_method = types.MethodType(method, self)
+        bound_method: CallableT = types.MethodType(  # type: ignore[assignment]
+            method, self
+        )
         cached_method = cache_wrapper(bound_method)
         setattr(self, method.__name__, cached_method)
         return cached_method(*args, **kwargs)
 
-    return _special_method_cache(method, cache_wrapper) or wrapper
+    # Support cache clear even before cache has been created.
+    wrapper.cache_clear = lambda: None  # type: ignore[attr-defined]
+
+    return (  # type: ignore[return-value]
+        _special_method_cache(method, cache_wrapper) or wrapper
+    )
 
 
 def _special_method_cache(method, cache_wrapper):
@@ -202,13 +226,16 @@ def apply(transform):
 
     >>> @apply(reversed)
     ... def get_numbers(start):
+    ...     "doc for get_numbers"
     ...     return range(start, start+3)
     >>> list(get_numbers(4))
     [6, 5, 4]
+    >>> get_numbers.__doc__
+    'doc for get_numbers'
     """
 
     def wrap(func):
-        return compose(transform, func)
+        return functools.wraps(func)(compose(transform, func))
 
     return wrap
 
@@ -225,6 +252,8 @@ def result_invoke(action):
     ...     return a + b
     >>> x = add_two(2, 3)
     5
+    >>> x
+    5
     """
 
     def wrap(func):
@@ -239,11 +268,33 @@ def result_invoke(action):
     return wrap
 
 
-def call_aside(f, *args, **kwargs):
+def invoke(f, *args, **kwargs):
     """
     Call a function for its side effect after initialization.
 
-    >>> @call_aside
+    The benefit of using the decorator instead of simply invoking a function
+    after defining it is that it makes explicit the author's intent for the
+    function to be called immediately. Whereas if one simply calls the
+    function immediately, it's less obvious if that was intentional or
+    incidental. It also avoids repeating the name - the two actions, defining
+    the function and calling it immediately are modeled separately, but linked
+    by the decorator construct.
+
+    The benefit of having a function construct (opposed to just invoking some
+    behavior inline) is to serve as a scope in which the behavior occurs. It
+    avoids polluting the global namespace with local variables, provides an
+    anchor on which to attach documentation (docstring), keeps the behavior
+    logically separated (instead of conceptually separated or not separated at
+    all), and provides potential to re-use the behavior for testing or other
+    purposes.
+
+    This function is named as a pithy way to communicate, "call this function
+    primarily for its side effect", or "while defining this function, also
+    take it aside and call it". It exists because there's no Python construct
+    for "define and call" (nor should there be, as decorators serve this need
+    just fine). The behavior happens immediately and synchronously.
+
+    >>> @invoke
     ... def func(): print("called")
     called
     >>> func()
@@ -251,12 +302,20 @@ def call_aside(f, *args, **kwargs):
 
     Use functools.partial to pass parameters to the initial call
 
-    >>> @functools.partial(call_aside, name='bingo')
+    >>> @functools.partial(invoke, name='bingo')
     ... def func(name): print("called with", name)
     called with bingo
     """
     f(*args, **kwargs)
     return f
+
+
+def call_aside(*args, **kwargs):
+    """
+    Deprecated name for invoke.
+    """
+    warnings.warn("call_aside is deprecated, use invoke", DeprecationWarning)
+    return invoke(*args, **kwargs)
 
 
 class Throttler:
@@ -269,7 +328,6 @@ class Throttler:
             func = func.func
         self.func = func
         self.max_rate = max_rate
-        self.last_called = 0
         self.reset()
 
     def reset(self):
@@ -280,13 +338,13 @@ class Throttler:
         return self.func(*args, **kwargs)
 
     def _wait(self):
-        """ensure at least 1/max_rate seconds from last call"""
+        "ensure at least 1/max_rate seconds from last call"
         elapsed = time.time() - self.last_called
         must_wait = 1 / self.max_rate - elapsed
         time.sleep(max(0, must_wait))
         self.last_called = time.time()
 
-    def __get__(self, obj, type_str=None):
+    def __get__(self, obj, type=None):
         return first_invoke(self._wait, functools.partial(self.func, obj))
 
 
@@ -311,7 +369,7 @@ def retry_call(func, cleanup=lambda: None, retries=0, trap=()):
     exception. On the final attempt, allow any exceptions
     to propagate.
     """
-    attempts = itertools.count() if retries == float('inf') else list(range(retries))
+    attempts = itertools.count() if retries == float('inf') else range(retries)
     for attempt in attempts:
         try:
             return func()
@@ -402,14 +460,13 @@ def assign_params(func, namespace):
     It even works on methods:
 
     >>> class Handler:
-    ...     @staticmethod
-def meth( arg):
+    ...     def meth(self, arg):
     ...         print(arg)
     >>> assign_params(Handler().meth, dict(arg='crystal', foo='clear'))()
     crystal
     """
     sig = inspect.signature(func)
-    params = list(sig.parameters.keys())
+    params = sig.parameters.keys()
     call_ns = {k: namespace[k] for k in params if k in namespace}
     return functools.partial(func, **call_ns)
 
@@ -458,3 +515,91 @@ def save_method_args(method):
         return method(self, *args, **kwargs)
 
     return wrapper
+
+
+def except_(*exceptions, replace=None, use=None):
+    """
+    Replace the indicated exceptions, if raised, with the indicated
+    literal replacement or evaluated expression (if present).
+
+    >>> safe_int = except_(ValueError)(int)
+    >>> safe_int('five')
+    >>> safe_int('5')
+    5
+
+    Specify a literal replacement with ``replace``.
+
+    >>> safe_int_r = except_(ValueError, replace=0)(int)
+    >>> safe_int_r('five')
+    0
+
+    Provide an expression to ``use`` to pass through particular parameters.
+
+    >>> safe_int_pt = except_(ValueError, use='args[0]')(int)
+    >>> safe_int_pt('five')
+    'five'
+
+    """
+
+    def decorate(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except exceptions:
+                try:
+                    return eval(use)
+                except TypeError:
+                    return replace
+
+        return wrapper
+
+    return decorate
+
+
+def identity(x):
+    return x
+
+
+def bypass_when(check, *, _op=identity):
+    """
+    Decorate a function to return its parameter when ``check``.
+
+    >>> bypassed = []  # False
+
+    >>> @bypass_when(bypassed)
+    ... def double(x):
+    ...     return x * 2
+    >>> double(2)
+    4
+    >>> bypassed[:] = [object()]  # True
+    >>> double(2)
+    2
+    """
+
+    def decorate(func):
+        @functools.wraps(func)
+        def wrapper(param):
+            return param if _op(check) else func(param)
+
+        return wrapper
+
+    return decorate
+
+
+def bypass_unless(check):
+    """
+    Decorate a function to return its parameter unless ``check``.
+
+    >>> enabled = [object()]  # True
+
+    >>> @bypass_unless(enabled)
+    ... def double(x):
+    ...     return x * 2
+    >>> double(2)
+    4
+    >>> del enabled[:]  # False
+    >>> double(2)
+    2
+    """
+    return bypass_when(check, _op=operator.not_)

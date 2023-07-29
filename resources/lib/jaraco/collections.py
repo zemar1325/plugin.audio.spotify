@@ -4,9 +4,28 @@ import collections.abc
 import itertools
 import copy
 import functools
+import random
+import warnings
+from collections.abc import Container, Iterable, Mapping
+from typing import Callable, Union
 
-from jaraco.classes.properties import NonDataProperty
 import jaraco.text
+
+
+_Matchable = Union[Callable, Container, Iterable, re.Pattern]
+
+
+def _dispatch(obj: _Matchable) -> Callable:
+    # can't rely on singledispatch for Union[Container, Iterable]
+    # due to ambiguity
+    # (https://peps.python.org/pep-0443/#abstract-base-classes).
+    if isinstance(obj, re.Pattern):
+        return obj.fullmatch
+    if not isinstance(obj, Callable):  # type: ignore
+        if not isinstance(obj, Container):
+            obj = set(obj)  # type: ignore
+        obj = obj.__contains__
+    return obj  # type: ignore
 
 
 class Projection(collections.abc.Mapping):
@@ -15,12 +34,21 @@ class Projection(collections.abc.Mapping):
 
     >>> sample = {'a': 1, 'b': 2, 'c': 3}
     >>> prj = Projection(['a', 'c', 'd'], sample)
-    >>> prj == {'a': 1, 'c': 3}
+    >>> dict(prj)
+    {'a': 1, 'c': 3}
+
+    Projection also accepts an iterable or callable or pattern.
+
+    >>> iter_prj = Projection(iter('acd'), sample)
+    >>> call_prj = Projection(lambda k: ord(k) in (97, 99, 100), sample)
+    >>> pat_prj = Projection(re.compile(r'[acd]'), sample)
+    >>> prj == iter_prj == call_prj == pat_prj
     True
 
     Keys should only appear if they were specified and exist in the space.
+    Order is retained.
 
-    >>> sorted(list(prj.keys()))
+    >>> list(prj)
     ['a', 'c']
 
     Attempting to access a key not in the projection
@@ -35,55 +63,64 @@ class Projection(collections.abc.Mapping):
 
     >>> target = {'a': 2, 'b': 2}
     >>> target.update(prj)
-    >>> target == {'a': 1, 'b': 2, 'c': 3}
-    True
+    >>> target
+    {'a': 1, 'b': 2, 'c': 3}
 
-    Also note that Projection keeps a reference to the original dict, so
-    if you modify the original dict, that could modify the Projection.
+    Projection keeps a reference to the original dict, so
+    modifying the original dict may modify the Projection.
 
     >>> del sample['a']
     >>> dict(prj)
     {'c': 3}
     """
 
-    def __init__(self, keys, space):
-        self._keys = tuple(keys)
+    def __init__(self, keys: _Matchable, space: Mapping):
+        self._match = _dispatch(keys)
         self._space = space
 
     def __getitem__(self, key):
-        if key not in self._keys:
+        if not self._match(key):
             raise KeyError(key)
         return self._space[key]
 
+    def _keys_resolved(self):
+        return filter(self._match, self._space)
+
     def __iter__(self):
-        return iter(set(self._keys).intersection(self._space))
+        return self._keys_resolved()
 
     def __len__(self):
-        return len(tuple(iter(self)))
+        return len(tuple(self._keys_resolved()))
 
 
-class DictFilter(object):
+class Mask(Projection):
     """
-    Takes a dict, and simulates a sub-dict based on the keys.
+    The inverse of a projection, masking out keys.
 
     >>> sample = {'a': 1, 'b': 2, 'c': 3}
-    >>> filtered = DictFilter(sample, ['a', 'c'])
-    >>> filtered == {'a': 1, 'c': 3}
-    True
-    >>> set(filtered.values()) == {1, 3}
-    True
-    >>> set(filtered.items()) == {('a', 1), ('c', 3)}
-    True
+    >>> msk = Mask(['a', 'c', 'd'], sample)
+    >>> dict(msk)
+    {'b': 2}
+    """
 
-    One can also filter by a regular expression pattern
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # self._match = compose(operator.not_, self._match)
+        self._match = lambda key, orig=self._match: not orig(key)
 
-    >>> sample['d'] = 4
-    >>> sample['ef'] = 5
 
-    Here we filter for only single-character keys
+class DictFilter(Projection):
+    """
+    *Deprecated*
+
+    Takes a dict and simulates a sub-dict based on a pattern.
+
+    >>> sample = dict(a=1, b=2, c=3, d=4, ef=5)
+
+    Filter for only single-character keys:
 
     >>> filtered = DictFilter(sample, include_pattern='.$')
-    >>> filtered == {'a': 1, 'b': 2, 'c': 3, 'd': 4}
+    >>> filtered == dict(a=1, b=2, c=3, d=4)
     True
 
     >>> filtered['e']
@@ -91,59 +128,30 @@ class DictFilter(object):
     ...
     KeyError: 'e'
 
-    Also note that DictFilter keeps a reference to the original dict, so
-    if you modify the original dict, that could modify the filtered dict.
+    >>> 'e' in filtered
+    False
+
+    Pattern is useful for excluding keys with a prefix.
+
+    >>> filtered = DictFilter(sample, include_pattern=r'(?![ace])')
+    >>> filtered == dict(b=2, d=4)
+    True
+
+    DictFilter keeps a reference to the original dict, so
+    modifying the original dict may modify the filtered dict.
 
     >>> del sample['d']
-    >>> del sample['a']
-    >>> filtered == {'b': 2, 'c': 3}
-    True
-    >>> filtered != {'b': 2, 'c': 3}
-    False
+    >>> dict(filtered)
+    {'b': 2}
     """
 
-    def __init__(self, dct, include_keys=None, include_pattern=None):
-        if include_keys is None:
-            include_keys = []
-        self.dict = dct
-        self.specified_keys = set(include_keys)
-        if include_pattern is not None:
-            self.include_pattern = re.compile(include_pattern)
-        else:
-            # for performance, replace the pattern_keys property
-            self.pattern_keys = set()
-
-    def get_pattern_keys(self):
-        keys = list(filter(self.include_pattern.match, list(self.dict.keys())))
-        return set(keys)
-
-    pattern_keys = NonDataProperty(get_pattern_keys)
-
-    @property
-    def include_keys(self):
-        return self.specified_keys.union(self.pattern_keys)
-
-    def keys(self):
-        return list(self.include_keys.intersection(list(self.dict.keys())))
-
-    def values(self):
-        return list(map(self.dict.get, list(self.keys())))
-
-    def __getitem__(self, i):
-        if i not in self.include_keys:
-            raise KeyError(i)
-        return self.dict[i]
-
-    def items(self):
-        keys = list(self.keys())
-        values = list(map(self.dict.get, keys))
-        return list(zip(keys, values))
-
-    def __eq__(self, other):
-        return dict(self) == other
-
-    def __ne__(self, other):
-        return dict(self) != other
+    def __init__(self, dict, *, include_pattern):
+        warnings.warn(
+            "DictFilter is deprecated. Pass re.Pattern to Projection instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(re.compile(include_pattern).match, dict)
 
 
 def dict_map(function, dictionary):
@@ -156,7 +164,7 @@ def dict_map(function, dictionary):
     >>> d == dict(a=2,b=3)
     True
     """
-    return dict((key, function(value)) for key, value in list(dictionary.items()))
+    return dict((key, function(value)) for key, value in dictionary.items())
 
 
 class RangeMap(dict):
@@ -168,9 +176,9 @@ class RangeMap(dict):
     the sorted list of keys.
 
     One may supply keyword parameters to be passed to the sort function used
-    to sort keys (i.e. cmp [python 2 only], keys, reverse) as sort_params.
+    to sort keys (i.e. key, reverse) as sort_params.
 
-    Let's create a map that maps 1-3 -> 'a', 4-6 -> 'b'
+    Create a map that maps 1-3 -> 'a', 4-6 -> 'b'
 
     >>> r = RangeMap({3: 'a', 6: 'b'})  # boy, that was easy
     >>> r[1], r[2], r[3], r[4], r[5], r[6]
@@ -182,7 +190,7 @@ class RangeMap(dict):
     >>> r[4.5]
     'b'
 
-    But you'll notice that the way rangemap is defined, it must be open-ended
+    Notice that the way rangemap is defined, it must be open-ended
     on one side.
 
     >>> r[0]
@@ -221,17 +229,38 @@ class RangeMap(dict):
 
     >>> r.get(7, 'not found')
     'not found'
+
+    One often wishes to define the ranges by their left-most values,
+    which requires use of sort params and a key_match_comparator.
+
+    >>> r = RangeMap({1: 'a', 4: 'b'},
+    ...     sort_params=dict(reverse=True),
+    ...     key_match_comparator=operator.ge)
+    >>> r[1], r[2], r[3], r[4], r[5], r[6]
+    ('a', 'a', 'a', 'b', 'b', 'b')
+
+    That wasn't nearly as easy as before, so an alternate constructor
+    is provided:
+
+    >>> r = RangeMap.left({1: 'a', 4: 'b', 7: RangeMap.undefined_value})
+    >>> r[1], r[2], r[3], r[4], r[5], r[6]
+    ('a', 'a', 'a', 'b', 'b', 'b')
+
     """
 
-    def __init__(self, source, sort_params=None, key_match_comparator=operator.le):
+    def __init__(self, source, sort_params={}, key_match_comparator=operator.le):
         dict.__init__(self, source)
-        if sort_params is None:
-            sort_params = {}
         self.sort_params = sort_params
         self.match = key_match_comparator
 
+    @classmethod
+    def left(cls, source):
+        return cls(
+            source, sort_params=dict(reverse=True), key_match_comparator=operator.ge
+        )
+
     def __getitem__(self, item):
-        sorted_keys = sorted(list(self.keys()), **self.sort_params)
+        sorted_keys = sorted(self.keys(), **self.sort_params)
         if isinstance(item, RangeMap.Item):
             result = self.__getitem__(sorted_keys[item])
         else:
@@ -260,14 +289,14 @@ class RangeMap(dict):
         raise KeyError(item)
 
     def bounds(self):
-        sorted_keys = sorted(list(self.keys()), **self.sort_params)
-        return sorted_keys[RangeMap.first_item], sorted_keys[RangeMap.last_item]
+        sorted_keys = sorted(self.keys(), **self.sort_params)
+        return (sorted_keys[RangeMap.first_item], sorted_keys[RangeMap.last_item])
 
     # some special values for the RangeMap
-    undefined_value = type(str('RangeValueUndefined'), (object,), {})()
+    undefined_value = type('RangeValueUndefined', (), {})()
 
     class Item(int):
-        """RangeMap Item"""
+        "RangeMap Item"
 
     first_item = Item(0)
     last_item = Item(-1)
@@ -279,7 +308,7 @@ def __identity(x):
 
 def sorted_items(d, key=__identity, reverse=False):
     """
-    Return the items of the dictionary sorted by the keys
+    Return the items of the dictionary sorted by the keys.
 
     >>> sample = dict(foo=20, bar=42, baz=10)
     >>> tuple(sorted_items(sample))
@@ -297,7 +326,7 @@ def sorted_items(d, key=__identity, reverse=False):
     def pairkey_key(item):
         return key(item[0])
 
-    return sorted(list(d.items()), key=pairkey_key, reverse=reverse)
+    return sorted(d.items(), key=pairkey_key, reverse=reverse)
 
 
 class KeyTransformingDict(dict):
@@ -315,7 +344,7 @@ class KeyTransformingDict(dict):
         # build a dictionary using the default constructs
         d = dict(*args, **kargs)
         # build this dictionary using transformed keys.
-        for item in list(d.items()):
+        for item in d.items():
             self.__setitem__(*item)
 
     def __setitem__(self, key, val):
@@ -352,7 +381,7 @@ class KeyTransformingDict(dict):
         Raise KeyError if the key isn't found.
         """
         try:
-            return next(e_key for e_key in list(self.keys()) if e_key == key)
+            return next(e_key for e_key in self.keys() if e_key == key)
         except StopIteration:
             raise KeyError(key)
 
@@ -374,7 +403,7 @@ class FoldedCaseKeyedDict(KeyTransformingDict):
     True
     >>> 'HELLO' in d
     True
-    >>> print(repr(FoldedCaseKeyedDict({'heLlo': 'world'})).replace("u'", "'"))
+    >>> print(repr(FoldedCaseKeyedDict({'heLlo': 'world'})))
     {'heLlo': 'world'}
     >>> d = FoldedCaseKeyedDict({'heLlo': 'world'})
     >>> print(d['hello'])
@@ -437,7 +466,7 @@ class FoldedCaseKeyedDict(KeyTransformingDict):
         return jaraco.text.FoldedCase(key)
 
 
-class DictAdapter(object):
+class DictAdapter:
     """
     Provide a getitem interface for attributes of an object.
 
@@ -456,12 +485,12 @@ class DictAdapter(object):
         return getattr(self.object, name)
 
 
-class ItemsAsAttributes(object):
+class ItemsAsAttributes:
     """
     Mix-in class to enable a mapping object to provide items as
     attributes.
 
-    >>> C = type(str('C'), (dict, ItemsAsAttributes), dict())
+    >>> C = type('C', (dict, ItemsAsAttributes), dict())
     >>> i = C()
     >>> i['foo'] = 'bar'
     >>> i.foo
@@ -490,7 +519,7 @@ class ItemsAsAttributes(object):
 
     >>> missing_func = lambda self, key: 'missing item'
     >>> C = type(
-    ...     str('C'),
+    ...     'C',
     ...     (dict, ItemsAsAttributes),
     ...     dict(__missing__ = missing_func),
     ... )
@@ -509,9 +538,9 @@ class ItemsAsAttributes(object):
             #  but be careful not to lose the original exception context.
             noval = object()
 
-            def _safe_getitem(cont, ky, missing_result):
+            def _safe_getitem(cont, key, missing_result):
                 try:
-                    return cont[ky]
+                    return cont[key]
                 except KeyError:
                     return missing_result
 
@@ -520,13 +549,13 @@ class ItemsAsAttributes(object):
                 return result
             # raise the original exception, but use the original class
             #  name, not 'super'.
-            message, = e.args
+            (message,) = e.args
             message = message.replace('super', self.__class__.__name__, 1)
             e.args = (message,)
             raise
 
 
-def invert_map(mp):
+def invert_map(map):
     """
     Given a dictionary, return another dictionary with keys and values
     switched. If any of the values resolve to the same key, raises
@@ -542,8 +571,8 @@ def invert_map(mp):
     ...
     ValueError: Key conflict in inverted mapping
     """
-    res = dict((v, k) for k, v in list(mp.items()))
-    if not len(res) == len(mp):
+    res = dict((v, k) for k, v in map.items())
+    if not len(res) == len(map):
         raise ValueError('Key conflict in inverted mapping')
     return res
 
@@ -565,7 +594,7 @@ class IdentityOverrideMap(dict):
         return key
 
 
-class DictStack(list, collections.abc.Mapping):
+class DictStack(list, collections.abc.MutableMapping):
     """
     A stack of dictionaries that behaves as a view on those dictionaries,
     giving preference to the last.
@@ -577,12 +606,17 @@ class DictStack(list, collections.abc.Mapping):
     2
     >>> stack['c']
     2
+    >>> len(stack)
+    3
     >>> stack.push(dict(a=3))
     >>> stack['a']
     3
+    >>> stack['a'] = 4
     >>> set(stack.keys()) == set(['a', 'b', 'c'])
     True
-    >>> dict(**stack) == dict(a=3, c=2, b=2)
+    >>> set(stack.items()) == set([('a', 4), ('b', 2), ('c', 2)])
+    True
+    >>> dict(**stack) == dict(stack) == dict(a=4, c=2, b=2)
     True
     >>> d = stack.pop()
     >>> stack['a']
@@ -591,18 +625,42 @@ class DictStack(list, collections.abc.Mapping):
     >>> stack['a']
     1
     >>> stack.get('b', None)
+    >>> 'c' in stack
+    True
+    >>> del stack['c']
+    >>> dict(stack)
+    {'a': 1}
     """
 
-    def keys(self):
-        return list(set(itertools.chain.from_iterable(list(c.keys()) for c in self)))
+    def __iter__(self):
+        dicts = list.__iter__(self)
+        return iter(set(itertools.chain.from_iterable(c.keys() for c in dicts)))
 
     def __getitem__(self, key):
-        for scope in reversed(self):
+        for scope in reversed(tuple(list.__iter__(self))):
             if key in scope:
                 return scope[key]
         raise KeyError(key)
 
     push = list.append
+
+    def __contains__(self, other):
+        return collections.abc.Mapping.__contains__(self, other)
+
+    def __len__(self):
+        return len(list(iter(self)))
+
+    def __setitem__(self, key, item):
+        last = list.__getitem__(self, -1)
+        return last.__setitem__(key, item)
+
+    def __delitem__(self, key):
+        last = list.__getitem__(self, -1)
+        return last.__delitem__(key)
+
+    # workaround for mypy confusion
+    def pop(self, *args, **kwargs):
+        return list.pop(self, *args, **kwargs)
 
 
 class BijectiveMap(dict):
@@ -675,10 +733,10 @@ class BijectiveMap(dict):
         if item == value:
             raise ValueError("Key cannot map to itself")
         overlap = (
-                item in self
-                and self[item] != value
-                or value in self
-                and self[value] != item
+            item in self
+            and self[item] != value
+            or value in self
+            and self[value] != item
         )
         if overlap:
             raise ValueError("Key/Value pairs may not overlap")
@@ -700,7 +758,7 @@ class BijectiveMap(dict):
         # build a dictionary using the default constructs
         d = dict(*args, **kwargs)
         # build this dictionary using transformed keys.
-        for item in list(d.items()):
+        for item in d.items():
             self.__setitem__(*item)
 
 
@@ -793,7 +851,7 @@ class FrozenDict(collections.abc.Mapping, collections.abc.Hashable):
         return self.__data.__eq__(other)
 
     def copy(self):
-        """Return a shallow copy of self"""
+        "Return a shallow copy of self"
         return copy.copy(self)
 
 
@@ -835,7 +893,7 @@ class Enumeration(ItemsAsAttributes, BijectiveMap):
             names = names.split()
         if codes is None:
             codes = itertools.count()
-        super(Enumeration, self).__init__(list(zip(names, codes)))
+        super(Enumeration, self).__init__(zip(names, codes))
 
     @property
     def names(self):
@@ -846,7 +904,7 @@ class Enumeration(ItemsAsAttributes, BijectiveMap):
         return (self[name] for name in self.names)
 
 
-class Everything(object):
+class Everything:
     """
     A collection "containing" every possible thing.
 
@@ -865,7 +923,7 @@ class Everything(object):
         return True
 
 
-class InstrumentedDict(collections.UserDict):
+class InstrumentedDict(collections.UserDict):  # type: ignore  # buggy mypy
     """
     Instrument an existing dictionary with additional
     functionality, but always reference and mutate
@@ -887,7 +945,7 @@ class InstrumentedDict(collections.UserDict):
         self.data = data
 
 
-class Least(object):
+class Least:
     """
     A value that is always lesser than any other
 
@@ -919,7 +977,7 @@ class Least(object):
     __gt__ = __ge__
 
 
-class Greatest(object):
+class Greatest:
     """
     A value that is always greater than any other
 
@@ -966,3 +1024,82 @@ def pop_all(items):
     """
     result, items[:] = items[:], []
     return result
+
+
+# mypy disabled for pytest-dev/pytest#8332
+class FreezableDefaultDict(collections.defaultdict):  # type: ignore
+    """
+    Often it is desirable to prevent the mutation of
+    a default dict after its initial construction, such
+    as to prevent mutation during iteration.
+
+    >>> dd = FreezableDefaultDict(list)
+    >>> dd[0].append('1')
+    >>> dd.freeze()
+    >>> dd[1]
+    []
+    >>> len(dd)
+    1
+    """
+
+    def __missing__(self, key):
+        return getattr(self, '_frozen', super().__missing__)(key)
+
+    def freeze(self):
+        self._frozen = lambda key: self.default_factory()
+
+
+class Accumulator:
+    def __init__(self, initial=0):
+        self.val = initial
+
+    def __call__(self, val):
+        self.val += val
+        return self.val
+
+
+class WeightedLookup(RangeMap):
+    """
+    Given parameters suitable for a dict representing keys
+    and a weighted proportion, return a RangeMap representing
+    spans of values proportial to the weights:
+
+    >>> even = WeightedLookup(a=1, b=1)
+
+    [0, 1) -> a
+    [1, 2) -> b
+
+    >>> lk = WeightedLookup(a=1, b=2)
+
+    [0, 1) -> a
+    [1, 3) -> b
+
+    >>> lk[.5]
+    'a'
+    >>> lk[1.5]
+    'b'
+
+    Adds ``.random()`` to select a random weighted value:
+
+    >>> lk.random() in ['a', 'b']
+    True
+
+    >>> choices = [lk.random() for x in range(1000)]
+
+    Statistically speaking, choices should be .5 a:b
+    >>> ratio = choices.count('a') / choices.count('b')
+    >>> .4 < ratio < .6
+    True
+    """
+
+    def __init__(self, *args, **kwargs):
+        raw = dict(*args, **kwargs)
+
+        # allocate keys by weight
+        indexes = map(Accumulator(), raw.values())
+        super().__init__(zip(indexes, raw.keys()), key_match_comparator=operator.lt)
+
+    def random(self):
+        lower, upper = self.bounds()
+        selector = random.random() * upper
+        return self[selector]

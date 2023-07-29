@@ -1,3 +1,5 @@
-from .client import Spotify, SpotifyException
-
-VERSION = '2.0.1'
+from .cache_handler import *  # noqa
+from .client import *  # noqa
+from .exceptions import *  # noqa
+from .oauth2 import *  # noqa
+from .util import *  # noqa

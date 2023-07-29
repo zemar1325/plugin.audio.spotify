@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 """Collection of exceptions raised and/or processed by Cheroot."""
 
-from __future__ import absolute_import, division, print_function
-
-__metaclass__ = type
-
 import errno
 import sys
 
 
 class MaxSizeExceeded(Exception):
-    """Exception raised when a client sends more data then acceptable within limit.
+    """Exception raised when a client sends more data then allowed under limit.
 
-    Depends on ``request.body.maxbytes`` config option if used within CherryPy
+    Depends on ``request.body.maxbytes`` config option if used within CherryPy.
     """
 
 
@@ -39,30 +35,31 @@ def plat_specific_errors(*errnames):
 socket_error_eintr = plat_specific_errors('EINTR', 'WSAEINTR')
 
 socket_errors_to_ignore = plat_specific_errors(
-        'EPIPE',
-        'EBADF', 'WSAEBADF',
-        'ENOTSOCK', 'WSAENOTSOCK',
-        'ETIMEDOUT', 'WSAETIMEDOUT',
-        'ECONNREFUSED', 'WSAECONNREFUSED',
-        'ECONNRESET', 'WSAECONNRESET',
-        'ECONNABORTED', 'WSAECONNABORTED',
-        'ENETRESET', 'WSAENETRESET',
-        'EHOSTDOWN', 'EHOSTUNREACH',
+    'EPIPE',
+    'EBADF', 'WSAEBADF',
+    'ENOTSOCK', 'WSAENOTSOCK',
+    'ETIMEDOUT', 'WSAETIMEDOUT',
+    'ECONNREFUSED', 'WSAECONNREFUSED',
+    'ECONNRESET', 'WSAECONNRESET',
+    'ECONNABORTED', 'WSAECONNABORTED',
+    'ENETRESET', 'WSAENETRESET',
+    'EHOSTDOWN', 'EHOSTUNREACH',
 )
 socket_errors_to_ignore.append('timed out')
 socket_errors_to_ignore.append('The read operation timed out')
 socket_errors_nonblocking = plat_specific_errors(
-        'EAGAIN', 'EWOULDBLOCK', 'WSAEWOULDBLOCK',
+    'EAGAIN', 'EWOULDBLOCK', 'WSAEWOULDBLOCK',
 )
 
 if sys.platform == 'darwin':
     socket_errors_to_ignore.extend(plat_specific_errors('EPROTOTYPE'))
     socket_errors_nonblocking.extend(plat_specific_errors('EPROTOTYPE'))
 
+
 acceptable_sock_shutdown_error_codes = {
-        errno.ENOTCONN,
-        errno.EPIPE, errno.ESHUTDOWN,  # corresponds to BrokenPipeError in Python 3
-        errno.ECONNRESET,  # corresponds to ConnectionResetError in Python 3
+    errno.ENOTCONN,
+    errno.EPIPE, errno.ESHUTDOWN,  # corresponds to BrokenPipeError in Python 3
+    errno.ECONNRESET,  # corresponds to ConnectionResetError in Python 3
 }
 """Errors that may happen during the connection close sequence.
 
@@ -80,9 +77,4 @@ Refs:
 * https://docs.microsoft.com/windows/win32/api/winsock/nf-winsock-shutdown
 """
 
-try:  # py3
-    acceptable_sock_shutdown_exceptions = (
-            BrokenPipeError, ConnectionResetError,
-    )
-except NameError:  # py2
-    acceptable_sock_shutdown_exceptions = ()
+acceptable_sock_shutdown_exceptions = (BrokenPipeError, ConnectionResetError)

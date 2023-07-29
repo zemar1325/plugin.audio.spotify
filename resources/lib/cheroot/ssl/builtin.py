@@ -7,13 +7,10 @@ To use this module, set ``HTTPServer.ssl_adapter`` to an instance of
 ``BuiltinSSLAdapter``.
 """
 
-from __future__ import absolute_import, division, print_function
-
-__metaclass__ = type
-
 import socket
 import sys
 import threading
+from contextlib import suppress
 
 try:
     import ssl
@@ -28,26 +25,21 @@ except ImportError:
     except ImportError:
         DEFAULT_BUFFER_SIZE = -1
 
-import six
-
 from . import Adapter
 from .. import errors
-from .._compat import IS_ABOVE_OPENSSL10, suppress
+from .._compat import IS_ABOVE_OPENSSL10
 from ..makefile import StreamReader, StreamWriter
 from ..server import HTTPServer
 
-if six.PY2:
-    generic_socket_error = socket.error
-else:
-    generic_socket_error = OSError
+generic_socket_error = OSError
 
 
 def _assert_ssl_exc_contains(exc, *msgs):
     """Check whether SSL exception contains either of messages provided."""
     if len(msgs) < 1:
         raise TypeError(
-                '_assert_ssl_exc_contains() requires '
-                'at least one message to be passed.',
+            '_assert_ssl_exc_contains() requires '
+            'at least one message to be passed.',
         )
     err_msg_lower = str(exc).lower()
     return any(m.lower() in err_msg_lower for m in msgs)
@@ -101,7 +93,7 @@ def _loopback_for_cert(certificate, private_key, certificate_chain):
         # when `close` is called, the SSL shutdown notice will be sent
         # and then python will wait to receive the corollary shutdown.
         thread = threading.Thread(
-                target=_loopback_for_cert_thread, args=(context, server),
+            target=_loopback_for_cert_thread, args=(context, server),
         )
         try:
             thread.start()
@@ -161,51 +153,51 @@ class BuiltinSSLAdapter(Adapter):
 
     # from mod_ssl/pkg.sslmod/ssl_engine_vars.c ssl_var_lookup_ssl_cert
     CERT_KEY_TO_ENV = {
-            'version': 'M_VERSION',
-            'serialNumber': 'M_SERIAL',
-            'notBefore': 'V_START',
-            'notAfter': 'V_END',
-            'subject': 'S_DN',
-            'issuer': 'I_DN',
-            'subjectAltName': 'SAN',
-            # not parsed by the Python standard library
-            # - A_SIG
-            # - A_KEY
-            # not provided by mod_ssl
-            # - OCSP
-            # - caIssuers
-            # - crlDistributionPoints
+        'version': 'M_VERSION',
+        'serialNumber': 'M_SERIAL',
+        'notBefore': 'V_START',
+        'notAfter': 'V_END',
+        'subject': 'S_DN',
+        'issuer': 'I_DN',
+        'subjectAltName': 'SAN',
+        # not parsed by the Python standard library
+        # - A_SIG
+        # - A_KEY
+        # not provided by mod_ssl
+        # - OCSP
+        # - caIssuers
+        # - crlDistributionPoints
     }
 
     # from mod_ssl/pkg.sslmod/ssl_engine_vars.c ssl_var_lookup_ssl_cert_dn_rec
     CERT_KEY_TO_LDAP_CODE = {
-            'countryName': 'C',
-            'stateOrProvinceName': 'ST',
-            # NOTE: mod_ssl also provides 'stateOrProvinceName' as 'SP'
-            # for compatibility with SSLeay
-            'localityName': 'L',
-            'organizationName': 'O',
-            'organizationalUnitName': 'OU',
-            'commonName': 'CN',
-            'title': 'T',
-            'initials': 'I',
-            'givenName': 'G',
-            'surname': 'S',
-            'description': 'D',
-            'userid': 'UID',
-            'emailAddress': 'Email',
-            # not provided by mod_ssl
-            # - dnQualifier: DNQ
-            # - domainComponent: DC
-            # - postalCode: PC
-            # - streetAddress: STREET
-            # - serialNumber
-            # - generationQualifier
-            # - pseudonym
-            # - jurisdictionCountryName
-            # - jurisdictionLocalityName
-            # - jurisdictionStateOrProvince
-            # - businessCategory
+        'countryName': 'C',
+        'stateOrProvinceName': 'ST',
+        # NOTE: mod_ssl also provides 'stateOrProvinceName' as 'SP'
+        # for compatibility with SSLeay
+        'localityName': 'L',
+        'organizationName': 'O',
+        'organizationalUnitName': 'OU',
+        'commonName': 'CN',
+        'title': 'T',
+        'initials': 'I',
+        'givenName': 'G',
+        'surname': 'S',
+        'description': 'D',
+        'userid': 'UID',
+        'emailAddress': 'Email',
+        # not provided by mod_ssl
+        # - dnQualifier: DNQ
+        # - domainComponent: DC
+        # - postalCode: PC
+        # - streetAddress: STREET
+        # - serialNumber
+        # - generationQualifier
+        # - pseudonym
+        # - jurisdictionCountryName
+        # - jurisdictionLocalityName
+        # - jurisdictionStateOrProvince
+        # - businessCategory
     }
 
     def __init__(
@@ -217,20 +209,20 @@ class BuiltinSSLAdapter(Adapter):
             raise ImportError('You must install the ssl module to use HTTPS.')
 
         super(BuiltinSSLAdapter, self).__init__(
-                certificate, private_key, certificate_chain, ciphers,
+            certificate, private_key, certificate_chain, ciphers,
         )
 
         self.context = ssl.create_default_context(
-                purpose=ssl.Purpose.CLIENT_AUTH,
-                cafile=certificate_chain,
+            purpose=ssl.Purpose.CLIENT_AUTH,
+            cafile=certificate_chain,
         )
         self.context.load_cert_chain(certificate, private_key)
         if self.ciphers is not None:
             self.context.set_ciphers(ciphers)
 
         self._server_env = self._make_env_cert_dict(
-                'SSL_SERVER',
-                _parse_cert(certificate, private_key, self.certificate_chain),
+            'SSL_SERVER',
+            _parse_cert(certificate, private_key, self.certificate_chain),
         )
         if not self._server_env:
             return
@@ -276,7 +268,7 @@ class BuiltinSSLAdapter(Adapter):
         EMPTY_RESULT = None, {}
         try:
             s = self.context.wrap_socket(
-                    sock, do_handshake_on_connect=True, server_side=True,
+                sock, do_handshake_on_connect=True, server_side=True,
             )
         except ssl.SSLError as ex:
             if ex.errno == ssl.SSL_ERROR_EOF:
@@ -293,15 +285,15 @@ class BuiltinSSLAdapter(Adapter):
                 # Errors that are caught by PyOpenSSL, but thrown by
                 # built-in ssl
                 _block_errors = (
-                        'unknown protocol', 'unknown ca', 'unknown_ca',
-                        'unknown error',
-                        'https proxy request', 'inappropriate fallback',
-                        'wrong version number',
-                        'no shared cipher', 'certificate unknown',
-                        'ccs received early',
-                        'certificate verify failed',  # client cert w/o trusted CA
-                        'version too low',  # caused by SSL3 connections
-                        'unsupported protocol',  # caused by TLS1 connections
+                    'unknown protocol', 'unknown ca', 'unknown_ca',
+                    'unknown error',
+                    'https proxy request', 'inappropriate fallback',
+                    'wrong version number',
+                    'no shared cipher', 'certificate unknown',
+                    'ccs received early',
+                    'certificate verify failed',  # client cert w/o trusted CA
+                    'version too low',  # caused by SSL3 connections
+                    'unsupported protocol',  # caused by TLS1 connections
                 )
                 if _assert_ssl_exc_contains(ex, *_block_errors):
                     # Accepted error, let's pass
@@ -335,18 +327,18 @@ class BuiltinSSLAdapter(Adapter):
         """Create WSGI environ entries to be merged into each request."""
         cipher = sock.cipher()
         ssl_environ = {
-                'wsgi.url_scheme': 'https',
-                'HTTPS': 'on',
-                'SSL_PROTOCOL': cipher[1],
-                'SSL_CIPHER': cipher[0],
-                'SSL_CIPHER_EXPORT': '',
-                'SSL_CIPHER_USEKEYSIZE': cipher[2],
-                'SSL_VERSION_INTERFACE': '%s Python/%s' % (
-                        HTTPServer.version, sys.version,
-                ),
-                'SSL_VERSION_LIBRARY': ssl.OPENSSL_VERSION,
-                'SSL_CLIENT_VERIFY': 'NONE',
-                # 'NONE' - client did not provide a cert (overriden below)
+            'wsgi.url_scheme': 'https',
+            'HTTPS': 'on',
+            'SSL_PROTOCOL': cipher[1],
+            'SSL_CIPHER': cipher[0],
+            'SSL_CIPHER_EXPORT': '',
+            'SSL_CIPHER_USEKEYSIZE': cipher[2],
+            'SSL_VERSION_INTERFACE': '%s Python/%s' % (
+                HTTPServer.version, sys.version,
+            ),
+            'SSL_VERSION_LIBRARY': ssl.OPENSSL_VERSION,
+            'SSL_CLIENT_VERIFY': 'NONE',
+            # 'NONE' - client did not provide a cert (overriden below)
         }
 
         # Python 3.3+
@@ -376,10 +368,10 @@ class BuiltinSSLAdapter(Adapter):
                 # and terminates the connection on failure
                 ssl_environ['SSL_CLIENT_VERIFY'] = 'SUCCESS'
                 ssl_environ.update(
-                        self._make_env_cert_dict('SSL_CLIENT', client_cert),
+                    self._make_env_cert_dict('SSL_CLIENT', client_cert),
                 )
                 ssl_environ['SSL_CLIENT_CERT'] = ssl.DER_cert_to_PEM_cert(
-                        sock.getpeercert(binary_form=True),
+                    sock.getpeercert(binary_form=True),
                 ).strip()
 
         ssl_environ.update(self._server_env)
@@ -403,7 +395,7 @@ class BuiltinSSLAdapter(Adapter):
             return {}
 
         env = {}
-        for cert_key, env_var in list(self.CERT_KEY_TO_ENV.items()):
+        for cert_key, env_var in self.CERT_KEY_TO_ENV.items():
             key = '%s_%s' % (env_prefix, env_var)
             value = parsed_cert.get(cert_key)
             if env_var == 'SAN':
@@ -470,9 +462,9 @@ class BuiltinSSLAdapter(Adapter):
                 dn_attrs[attr_code].append(val)
 
         env = {
-                env_prefix: ','.join(dn),
+            env_prefix: ','.join(dn),
         }
-        for attr_code, values in list(dn_attrs.items()):
+        for attr_code, values in dn_attrs.items():
             env['%s_%s' % (env_prefix, attr_code)] = ','.join(values)
             if len(values) == 1:
                 continue

@@ -1,24 +1,21 @@
-# -*- coding: utf-8 -*-
-
-from __future__ import unicode_literals, absolute_import
-
+import collections.abc
+import contextlib
 import datetime
 import functools
 import numbers
 import time
 
-__metaclass__ = type
+import jaraco.functools
 
 
 class Stopwatch:
     """
-    A simple stopwatch which starts automatically.
+    A simple stopwatch that starts automatically.
 
     >>> w = Stopwatch()
     >>> _1_sec = datetime.timedelta(seconds=1)
     >>> w.split() < _1_sec
     True
-    >>> import time
     >>> time.sleep(1.0)
     >>> w.split() >= _1_sec
     True
@@ -29,13 +26,13 @@ class Stopwatch:
     >>> w.split() < _1_sec
     True
 
-    It should be possible to launch the Stopwatch in a context:
+    Launch the Stopwatch in a context:
 
     >>> with Stopwatch() as watch:
     ...     assert isinstance(watch.split(), datetime.timedelta)
 
-    In that case, the watch is stopped when the context is exited,
-    so to read the elapsed time::
+    After exiting the context, the watch is stopped; read the
+    elapsed time directly:
 
     >>> watch.elapsed
     datetime.timedelta(...)
@@ -44,29 +41,27 @@ class Stopwatch:
     """
 
     def __init__(self):
-        self.elapsed = None
-        self.start_time = None
-
         self.reset()
         self.start()
 
     def reset(self):
         self.elapsed = datetime.timedelta(0)
-        if hasattr(self, 'start_time'):
-            del self.start_time
+        with contextlib.suppress(AttributeError):
+            del self._start
+
+    def _diff(self):
+        return datetime.timedelta(seconds=time.monotonic() - self._start)
 
     def start(self):
-        self.start_time = datetime.datetime.utcnow()
+        self._start = time.monotonic()
 
     def stop(self):
-        stop_time = datetime.datetime.utcnow()
-        self.elapsed += stop_time - self.start_time
-        del self.start_time
+        self.elapsed += self._diff()
+        del self._start
         return self.elapsed
 
     def split(self):
-        local_duration = datetime.datetime.utcnow() - self.start_time
-        return self.elapsed + local_duration
+        return self.elapsed + self._diff()
 
     # context manager support
     def __enter__(self):
@@ -81,6 +76,10 @@ class IntervalGovernor:
     """
     Decorate a function to only allow it to be called once per
     min_interval. Otherwise, it returns None.
+
+    >>> gov = IntervalGovernor(30)
+    >>> gov.min_interval.total_seconds()
+    30.0
     """
 
     def __init__(self, min_interval):
@@ -92,10 +91,7 @@ class IntervalGovernor:
     def decorate(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            allow = (
-                    not self.last_call
-                    or self.last_call.split() > self.min_interval
-            )
+            allow = not self.last_call or self.last_call.split() > self.min_interval
             if allow:
                 self.last_call = Stopwatch()
                 return func(*args, **kwargs)
@@ -119,11 +115,18 @@ class Timer(Stopwatch):
 
     def __init__(self, target=float('Inf')):
         self.target = self._accept(target)
-        super(Timer, self).__init__()
+        super().__init__()
 
     @staticmethod
     def _accept(target):
-        """Accept None or ∞ or datetime or numeric for target"""
+        """
+        Accept None or ∞ or datetime or numeric for target
+
+        >>> Timer._accept(datetime.timedelta(seconds=30))
+        30.0
+        >>> Timer._accept(None)
+        inf
+        """
         if isinstance(target, datetime.timedelta):
             target = target.total_seconds()
 
@@ -137,7 +140,7 @@ class Timer(Stopwatch):
         return self.split().total_seconds() > self.target
 
 
-class BackoffDelay:
+class BackoffDelay(collections.abc.Iterator):
     """
     Exponential backoff delay.
 
@@ -171,20 +174,38 @@ class BackoffDelay:
     >>> bd.delay
     0.015
 
+    To reset the backoff, simply call ``.reset()``:
+
+    >>> bd.reset()
+    >>> bd.delay
+    0.01
+
+    Iterate on the object to retrieve/advance the delay values.
+
+    >>> next(bd)
+    0.01
+    >>> next(bd)
+    0.015
+    >>> import itertools
+    >>> tuple(itertools.islice(bd, 3))
+    (0.015, 0.015, 0.015)
+
     Limit may be a callable taking a number and returning
     the limited number.
 
     >>> at_least_one = lambda n: max(n, 1)
     >>> bd = BackoffDelay(delay=0.01, factor=2, limit=at_least_one)
-    >>> bd()
-    >>> bd.delay
+    >>> next(bd)
+    0.01
+    >>> next(bd)
     1
 
     Pass a jitter to add or subtract seconds to the delay.
 
     >>> bd = BackoffDelay(jitter=0.01)
-    >>> bd()
-    >>> bd.delay
+    >>> next(bd)
+    0
+    >>> next(bd)
     0.01
 
     Jitter may be a callable. To supply a non-deterministic jitter
@@ -193,8 +214,9 @@ class BackoffDelay:
     >>> import random
     >>> jitter=functools.partial(random.uniform, -0.5, 0.5)
     >>> bd = BackoffDelay(jitter=jitter)
-    >>> bd()
-    >>> 0 <= bd.delay <= 0.5
+    >>> next(bd)
+    0
+    >>> 0 <= next(bd) <= 0.5
     True
     """
 
@@ -206,6 +228,7 @@ class BackoffDelay:
     jitter = 0
     "Number or callable returning extra seconds to add to delay"
 
+    @jaraco.functools.save_method_args
     def __init__(self, delay=0, factor=1, limit=float('inf'), jitter=0):
         self.delay = delay
         self.factor = factor
@@ -214,14 +237,30 @@ class BackoffDelay:
 
             def limit(n):
                 return max(0, min(limit_, n))
+
         self.limit = limit
         if isinstance(jitter, numbers.Number):
             jitter_ = jitter
 
             def jitter():
                 return jitter_
+
         self.jitter = jitter
 
     def __call__(self):
-        time.sleep(self.delay)
+        time.sleep(next(self))
+
+    def __next__(self):
+        delay = self.delay
+        self.bump()
+        return delay
+
+    def __iter__(self):
+        return self
+
+    def bump(self):
         self.delay = self.limit(self.delay * self.factor + self.jitter())
+
+    def reset(self):
+        saved = self._saved___init__
+        self.__init__(*saved.args, **saved.kwargs)

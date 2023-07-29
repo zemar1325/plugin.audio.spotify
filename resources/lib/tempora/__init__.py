@@ -1,87 +1,25 @@
-# -*- coding: UTF-8 -*-
-
-"""Objects and routines pertaining to date and time (tempora)"""
-
-from __future__ import division, unicode_literals
+"Objects and routines pertaining to date and time (tempora)"
 
 import datetime
 import time
 import re
 import numbers
 import functools
-
-import six
-
-__metaclass__ = type
-
-
-class Parser:
-    """
-    Datetime parser: parses a date-time string using multiple possible
-    formats.
-
-    >>> p = Parser(('%H%M', '%H:%M'))
-    >>> tuple(p.parse('1319'))
-    (1900, 1, 1, 13, 19, 0, 0, 1, -1)
-    >>> dateParser = Parser(('%m/%d/%Y', '%Y-%m-%d', '%d-%b-%Y'))
-    >>> tuple(dateParser.parse('2003-12-20'))
-    (2003, 12, 20, 0, 0, 0, 5, 354, -1)
-    >>> tuple(dateParser.parse('16-Dec-1994'))
-    (1994, 12, 16, 0, 0, 0, 4, 350, -1)
-    >>> tuple(dateParser.parse('5/19/2003'))
-    (2003, 5, 19, 0, 0, 0, 0, 139, -1)
-    >>> dtParser = Parser(('%Y-%m-%d %H:%M:%S', '%a %b %d %H:%M:%S %Y'))
-    >>> tuple(dtParser.parse('2003-12-20 19:13:26'))
-    (2003, 12, 20, 19, 13, 26, 5, 354, -1)
-    >>> tuple(dtParser.parse('Tue Jan 20 16:19:33 2004'))
-    (2004, 1, 20, 16, 19, 33, 1, 20, -1)
-
-    Be forewarned, a ValueError will be raised if more than one format
-    matches:
-
-    >>> Parser(('%H%M', '%H%M%S')).parse('732')
-    Traceback (most recent call last):
-        ...
-    ValueError: More than one format string matched target 732.
-    """
-
-    formats = ('%m/%d/%Y', '%m/%d/%y', '%Y-%m-%d', '%d-%b-%Y', '%d-%b-%y')
-    "some common default formats"
-
-    def __init__(self, formats=None):
-        self.target = None
-        if formats:
-            self.formats = formats
-
-    def parse(self, target):
-        self.target = target
-        results = tuple([f for f in map(self._parse, self.formats) if f])
-        del self.target
-        if not results:
-            tmpl = "No format strings matched the target {target}."
-            raise ValueError(tmpl.format(**locals()))
-        if not len(results) == 1:
-            tmpl = "More than one format string matched target {target}."
-            raise ValueError(tmpl.format(**locals()))
-        return results[0]
-
-    def _parse(self, fmt):
-        try:
-            result = time.strptime(self.target, fmt)
-        except ValueError:
-            result = False
-        return result
+import contextlib
+from numbers import Number
+from typing import Union, Tuple, Iterable
+from typing import cast
 
 
 # some useful constants
-osc_per_year = 290091329207984000
+osc_per_year = 290_091_329_207_984_000
 """
 mean vernal equinox year expressed in oscillations of atomic cesium at the
 year 2000 (see http://webexhibits.org/calendars/timeline.html for more info).
 """
-osc_per_second = 9192631770
+osc_per_second = 9_192_631_770
 seconds_per_second = 1
-seconds_per_year = 31556940
+seconds_per_year = 31_556_940
 seconds_per_minute = 60
 minutes_per_hour = 60
 hours_per_day = 24
@@ -95,128 +33,114 @@ seconds_per_month = seconds_per_year / 12
 hours_per_month = hours_per_day * days_per_year / 12
 
 
-def strftime(fmt, t):
-    """A class to replace the strftime in datetime package or time module.
-    Identical to strftime behavior in those modules except supports any
-    year.
-    Also supports datetime.datetime times.
-    Also supports milliseconds using %s
-    Also supports microseconds using %u"""
-    if isinstance(t, (time.struct_time, tuple)):
-        t = datetime.datetime(*t[:6])
-    assert isinstance(t, (datetime.datetime, datetime.time, datetime.date))
-    try:
-        year = t.year
-        if year < 1900:
-            t = t.replace(year=1900)
-    except AttributeError:
-        year = 1900
-    subs = (
-            ('%Y', '%04d' % year),
-            ('%y', '%02d' % (year % 100)),
-            ('%s', '%03d' % (t.microsecond // 1000)),
-            ('%u', '%03d' % (t.microsecond % 1000))
-    )
+@functools.lru_cache()
+def _needs_year_help() -> bool:
+    """
+    Some versions of Python render %Y with only three characters :(
+    https://bugs.python.org/issue39103
+    """
+    return len(datetime.date(900, 1, 1).strftime('%Y')) != 4
 
-    def do_sub(s, sub):
+
+AnyDatetime = Union[datetime.datetime, datetime.date, datetime.time]
+StructDatetime = Union[Tuple[int, ...], time.struct_time]
+
+
+def ensure_datetime(ob: AnyDatetime) -> datetime.datetime:
+    """
+    Given a datetime or date or time object from the ``datetime``
+    module, always return a datetime using default values.
+    """
+    if isinstance(ob, datetime.datetime):
+        return ob
+    date = cast(datetime.date, ob)
+    time = cast(datetime.time, ob)
+    if isinstance(ob, datetime.date):
+        time = datetime.time()
+    if isinstance(ob, datetime.time):
+        date = datetime.date(1900, 1, 1)
+    return datetime.datetime.combine(date, time)
+
+
+def infer_datetime(ob: Union[AnyDatetime, StructDatetime]) -> datetime.datetime:
+    if isinstance(ob, (time.struct_time, tuple)):
+        ob = datetime.datetime(*ob[:6])  # type: ignore
+    return ensure_datetime(ob)
+
+
+def strftime(fmt: str, t: Union[AnyDatetime, tuple, time.struct_time]) -> str:
+    """
+    Portable strftime.
+
+    In the stdlib, strftime has `known portability problems
+    <https://bugs.python.org/issue13305>`_. This function
+    aims to smooth over those issues and provide a
+    consistent experience across the major platforms.
+
+    >>> strftime('%Y', datetime.datetime(1890, 1, 1))
+    '1890'
+    >>> strftime('%Y', datetime.datetime(900, 1, 1))
+    '0900'
+
+    Supports time.struct_time, tuples, and datetime.datetime objects.
+
+    >>> strftime('%Y-%m-%d', (1976, 5, 7))
+    '1976-05-07'
+
+    Also supports date objects
+
+    >>> strftime('%Y', datetime.date(1976, 5, 7))
+    '1976'
+
+    Also supports milliseconds using %s.
+
+    >>> strftime('%s', datetime.time(microsecond=20000))
+    '020'
+
+    Also supports microseconds (3 digits) using %µ
+
+    >>> strftime('%µ', datetime.time(microsecond=123456))
+    '456'
+
+    Historically, %u was used for microseconds, but now
+    it honors the value rendered by stdlib.
+
+    >>> strftime('%u', datetime.date(1976, 5, 7))
+    '5'
+
+    Also supports microseconds (6 digits) using %f
+
+    >>> strftime('%f', datetime.time(microsecond=23456))
+    '023456'
+
+    Even supports time values on date objects (discouraged):
+
+    >>> strftime('%f', datetime.date(1976, 1, 1))
+    '000000'
+    >>> strftime('%µ', datetime.date(1976, 1, 1))
+    '000'
+    >>> strftime('%s', datetime.date(1976, 1, 1))
+    '000'
+
+    And vice-versa:
+
+    >>> strftime('%Y', datetime.time())
+    '1900'
+    """
+    t = infer_datetime(t)
+    subs = (
+        ('%s', '%03d' % (t.microsecond // 1000)),
+        ('%µ', '%03d' % (t.microsecond % 1000)),
+    ) + (('%Y', '%04d' % t.year),) * _needs_year_help()
+
+    def doSub(s, sub):
         return s.replace(*sub)
 
-    def do_subs(s):
-        return functools.reduce(do_sub, subs, s)
+    def doSubs(s):
+        return functools.reduce(doSub, subs, s)
 
-    fmt = '%%'.join(map(do_subs, fmt.split('%%')))
+    fmt = '%%'.join(map(doSubs, fmt.split('%%')))
     return t.strftime(fmt)
-
-
-def strptime(s, fmt, tzinfo=None):
-    """
-    A function to replace strptime in the time module.  Should behave
-    identically to the strptime function except it returns a datetime.datetime
-    object instead of a time.struct_time object.
-    Also takes an optional tzinfo parameter which is a time zone info object.
-    """
-    res = time.strptime(s, fmt)
-    return datetime.datetime(tzinfo=tzinfo, *res[:6])
-
-
-class DatetimeConstructor:
-    """
-    >>> cd = DatetimeConstructor.construct_datetime
-    >>> cd(datetime.datetime(2011,1,1))
-    datetime.datetime(2011, 1, 1, 0, 0)
-    """
-
-    @classmethod
-    def construct_datetime(cls, *args, **kwargs):
-        """Construct a datetime.datetime from a number of different time
-        types found in python and pythonwin"""
-        if len(args) == 1:
-            arg = args[0]
-            method = cls.__get_dt_constructor(
-                    type(arg).__module__,
-                    type(arg).__name__,
-            )
-            result = method(arg)
-            try:
-                result = result.replace(tzinfo=kwargs.pop('tzinfo'))
-            except KeyError:
-                pass
-            if kwargs:
-                first_key = list(kwargs.keys())[0]
-                tmpl = (
-                        "{first_key} is an invalid keyword "
-                        "argument for this function."
-                )
-                raise TypeError(tmpl.format(**locals()))
-        else:
-            result = datetime.datetime(*args, **kwargs)
-        return result
-
-    @classmethod
-    def __get_dt_constructor(cls, module_name, name):
-        try:
-            method_name = '__dt_from_{moduleName}_{name}__'.format(**locals())
-            return getattr(cls, method_name)
-        except AttributeError:
-            tmpl = (
-                    "No way to construct datetime.datetime from "
-                    "{moduleName}.{name}"
-            )
-            raise TypeError(tmpl.format(**locals()))
-
-    @staticmethod
-    def __dt_from_datetime_datetime__(source):
-        dtattrs = (
-                'year', 'month', 'day', 'hour', 'minute', 'second',
-                'microsecond', 'tzinfo',
-        )
-        attrs = [getattr(source, a) for a in dtattrs]
-        return datetime.datetime(*attrs)
-
-    @staticmethod
-    def __dt_from___builtin___time__(pyt):
-        """Construct a datetime.datetime from a pythonwin time"""
-        fmt_string = '%Y-%m-%d %H:%M:%S'
-        result = strptime(pyt.Format(fmt_string), fmt_string)
-        # get milliseconds and microseconds.  The only way to do this is
-        #  to use the __float__ attribute of the time, which is in days.
-        microseconds_per_day = seconds_per_day * 1000000
-        microseconds = float(pyt) * microseconds_per_day
-        microsecond = int(microseconds % 1000000)
-        result = result.replace(microsecond=microsecond)
-        return result
-
-    @staticmethod
-    def __dt_from_timestamp__(timestamp):
-        return datetime.datetime.utcfromtimestamp(timestamp)
-
-    __dt_from___builtin___float__ = __dt_from_timestamp__
-    __dt_from___builtin___long__ = __dt_from_timestamp__
-    __dt_from___builtin___int__ = __dt_from_timestamp__
-
-    @staticmethod
-    def __dt_from_time_struct_time__(s):
-        return datetime.datetime(*s[:6])
 
 
 def datetime_mod(dt, period, start=None):
@@ -256,7 +180,7 @@ def datetime_mod(dt, period, start=None):
     def get_time_delta_microseconds(td):
         return (td.days * seconds_per_day + td.seconds) * 1000000 + td.microseconds
 
-    delta, period = list(map(get_time_delta_microseconds, (delta, period)))
+    delta, period = map(get_time_delta_microseconds, (delta, period))
     offset = datetime.timedelta(microseconds=delta % period)
     # the result is the original specified time minus the offset
     result = dt - offset
@@ -286,6 +210,16 @@ def datetime_round(dt, period, start=None):
 def get_nearest_year_for_day(day):
     """
     Returns the nearest year to now inferred from a Julian date.
+
+    >>> freezer = getfixture('freezer')
+    >>> freezer.move_to('2019-05-20')
+    >>> get_nearest_year_for_day(20)
+    2019
+    >>> get_nearest_year_for_day(340)
+    2018
+    >>> freezer.move_to('2019-12-15')
+    >>> get_nearest_year_for_day(20)
+    2020
     """
     now = time.gmtime()
     result = now.tm_year
@@ -326,7 +260,7 @@ def get_period_seconds(period):
     ...
     ValueError: period not in (second, minute, hour, day, month, year)
     """
-    if isinstance(period, six.string_types):
+    if isinstance(period, str):
         try:
             name = 'seconds_per_' + period.lower()
             result = globals()[name]
@@ -367,55 +301,64 @@ def get_date_format_string(period):
     """
     # handle the special case of 'month' which doesn't have
     #  a static interval in seconds
-    if isinstance(period, six.string_types) and period.lower() == 'month':
+    if isinstance(period, str) and period.lower() == 'month':
         return '%Y-%m'
     file_period_secs = get_period_seconds(period)
     format_pieces = ('%Y', '-%m-%d', ' %H', '-%M', '-%S')
-    secs_per_second = 1
+    seconds_per_second = 1
     intervals = (
-            seconds_per_year,
-            seconds_per_day,
-            seconds_per_hour,
-            seconds_per_minute,
-            secs_per_second,
+        seconds_per_year,
+        seconds_per_day,
+        seconds_per_hour,
+        seconds_per_minute,
+        seconds_per_second,
     )
-    mods = list([file_period_secs % interval for interval in intervals])
+    mods = list(map(lambda interval: file_period_secs % interval, intervals))
     format_pieces = format_pieces[: mods.index(0) + 1]
     return ''.join(format_pieces)
 
 
-def divide_timedelta_float(td, divisor):
-    """
-    Divide a timedelta by a float value
-
-    >>> one_day = datetime.timedelta(days=1)
-    >>> half_day = datetime.timedelta(days=.5)
-    >>> divide_timedelta_float(one_day, 2.0) == half_day
-    True
-    >>> divide_timedelta_float(one_day, 2) == half_day
-    True
-    """
-    # td is comprised of days, seconds, microseconds
-    dsm = [getattr(td, attr) for attr in ('days', 'seconds', 'microseconds')]
-    dsm = [elem / divisor for elem in dsm]
-    return datetime.timedelta(*dsm)
-
-
 def calculate_prorated_values():
     """
-    A utility function to prompt for a rate (a string in units per
-    unit time), and return that same rate for various time periods.
+    >>> monkeypatch = getfixture('monkeypatch')
+    >>> import builtins
+    >>> monkeypatch.setattr(builtins, 'input', lambda prompt: '3/hour')
+    >>> calculate_prorated_values()
+    per minute: 0.05
+    per hour: 3.0
+    per day: 72.0
+    per month: 2191.454166666667
+    per year: 26297.45
     """
-    rate = six.moves.input("Enter the rate (3/hour, 50/month)> ")
-    res = re.match(r'(?P<value>[\d.]+)/(?P<period>\w+)$', rate).groupdict()
+    rate = input("Enter the rate (3/hour, 50/month)> ")
+    for period, value in _prorated_values(rate):
+        print(f"per {period}: {value}")
+
+
+def _prorated_values(rate: str) -> Iterable[Tuple[str, Number]]:
+    """
+    Given a rate (a string in units per unit time), and return that same
+    rate for various time periods.
+
+    >>> for period, value in _prorated_values('20/hour'):
+    ...     print('{period}: {value:0.3f}'.format(**locals()))
+    minute: 0.333
+    hour: 20.000
+    day: 480.000
+    month: 14609.694
+    year: 175316.333
+
+    """
+    match = re.match(r'(?P<value>[\d.]+)/(?P<period>\w+)$', rate)
+    res = cast(re.Match, match).groupdict()
     value = float(res['value'])
     value_per_second = value / get_period_seconds(res['period'])
     for period in ('minute', 'hour', 'day', 'month', 'year'):
         period_value = value_per_second * get_period_seconds(period)
-        print("per {period}: {period_value}".format(**locals()))
+        yield period, period_value
 
 
-def parse_timedelta(time_str):
+def parse_timedelta(str):
     """
     Take a string representing a span of time and parse it to a time delta.
     Accepts any string of comma-separated numbers each with a unit indicator.
@@ -440,48 +383,206 @@ def parse_timedelta(time_str):
     Note that months and years strict intervals, not aligned
     to a calendar:
 
-    >>> now = datetime.datetime.now()
-    >>> later = now + parse_timedelta('1 year')
-    >>> later.replace(year=now.year) - now
-    datetime.timedelta(seconds=20940)
+    >>> date = datetime.datetime.fromisoformat('2000-01-01')
+    >>> later = date + parse_timedelta('1 year')
+    >>> diff = later.replace(year=date.year) - date
+    >>> diff.seconds
+    20940
+
+    >>> parse_timedelta('foo')
+    Traceback (most recent call last):
+    ...
+    ValueError: Unexpected 'foo'
+
+    >>> parse_timedelta('14 seconds foo')
+    Traceback (most recent call last):
+    ...
+    ValueError: Unexpected 'foo'
+
+    Supports abbreviations:
+
+    >>> parse_timedelta('1s')
+    datetime.timedelta(seconds=1)
+
+    >>> parse_timedelta('1sec')
+    datetime.timedelta(seconds=1)
+
+    >>> parse_timedelta('5min1sec')
+    datetime.timedelta(seconds=301)
+
+    >>> parse_timedelta('1 ms')
+    datetime.timedelta(microseconds=1000)
+
+    >>> parse_timedelta('1 µs')
+    datetime.timedelta(microseconds=1)
+
+    >>> parse_timedelta('1 us')
+    datetime.timedelta(microseconds=1)
+
+    And supports the common colon-separated duration:
+
+    >>> parse_timedelta('14:00:35.362')
+    datetime.timedelta(seconds=50435, microseconds=362000)
+
+    TODO: Should this be 14 hours or 14 minutes?
+
+    >>> parse_timedelta('14:00')
+    datetime.timedelta(seconds=50400)
+
+    >>> parse_timedelta('14:00 minutes')
+    Traceback (most recent call last):
+    ...
+    ValueError: Cannot specify units with composite delta
+
+    Nanoseconds get rounded to the nearest microsecond:
+
+    >>> parse_timedelta('600 ns')
+    datetime.timedelta(microseconds=1)
+
+    >>> parse_timedelta('.002 µs, 499 ns')
+    datetime.timedelta(microseconds=1)
+
+    Expect ValueError for other invalid inputs.
+
+    >>> parse_timedelta('13 feet')
+    Traceback (most recent call last):
+    ...
+    ValueError: Invalid unit feets
     """
-    deltas = (_parse_timedelta_part(part.strip()) for part in time_str.split(','))
-    return sum(deltas, datetime.timedelta())
+    return _parse_timedelta_nanos(str).resolve()
 
 
-def _parse_timedelta_part(part):
-    match = re.match(r'(?P<value>[\d.]+) (?P<unit>\w+)', part)
-    if not match:
-        msg = "Unable to parse {part!r} as a time delta".format(**locals())
-        raise ValueError(msg)
-    unit = match.group('unit').lower()
+def _parse_timedelta_nanos(str):
+    parts = re.finditer(r'(?P<value>[\d.:]+)\s?(?P<unit>[^\W\d_]+)?', str)
+    chk_parts = _check_unmatched(parts, str)
+    deltas = map(_parse_timedelta_part, chk_parts)
+    return sum(deltas, _Saved_NS())
+
+
+def _check_unmatched(matches, text):
+    """
+    Ensure no words appear in unmatched text.
+    """
+
+    def check_unmatched(unmatched):
+        found = re.search(r'\w+', unmatched)
+        if found:
+            raise ValueError(f"Unexpected {found.group(0)!r}")
+
+    pos = 0
+    for match in matches:
+        check_unmatched(text[pos : match.start()])
+        yield match
+        pos = match.end()
+    check_unmatched(text[pos:])
+
+
+_unit_lookup = {
+    'µs': 'microsecond',
+    'µsec': 'microsecond',
+    'us': 'microsecond',
+    'usec': 'microsecond',
+    'micros': 'microsecond',
+    'ms': 'millisecond',
+    'msec': 'millisecond',
+    'millis': 'millisecond',
+    's': 'second',
+    'sec': 'second',
+    'h': 'hour',
+    'hr': 'hour',
+    'm': 'minute',
+    'min': 'minute',
+    'w': 'week',
+    'wk': 'week',
+    'd': 'day',
+    'ns': 'nanosecond',
+    'nsec': 'nanosecond',
+    'nanos': 'nanosecond',
+}
+
+
+def _resolve_unit(raw_match):
+    if raw_match is None:
+        return 'second'
+    text = raw_match.lower()
+    return _unit_lookup.get(text, text)
+
+
+def _parse_timedelta_composite(raw_value, unit):
+    if unit != 'seconds':
+        raise ValueError("Cannot specify units with composite delta")
+    values = raw_value.split(':')
+    units = 'hours', 'minutes', 'seconds'
+    composed = ' '.join(f'{value} {unit}' for value, unit in zip(values, units))
+    return _parse_timedelta_nanos(composed)
+
+
+def _parse_timedelta_part(match):
+    unit = _resolve_unit(match.group('unit'))
     if not unit.endswith('s'):
         unit += 's'
-    value = float(match.group('value'))
+    raw_value = match.group('value')
+    if ':' in raw_value:
+        return _parse_timedelta_composite(raw_value, unit)
+    value = float(raw_value)
     if unit == 'months':
         unit = 'years'
         value = value / 12
     if unit == 'years':
         unit = 'days'
         value = value * days_per_year
-    return datetime.timedelta(**{unit: value})
+    return _Saved_NS.derive(unit, value)
 
 
-def divide_timedelta(td1, td2):
+class _Saved_NS:
     """
-    Get the ratio of two timedeltas
+    Bundle a timedelta with nanoseconds.
 
-    >>> one_day = datetime.timedelta(days=1)
-    >>> one_hour = datetime.timedelta(hours=1)
-    >>> divide_timedelta(one_hour, one_day) == 1 / 24
-    True
+    >>> _Saved_NS.derive('microseconds', .001)
+    _Saved_NS(td=datetime.timedelta(0), nanoseconds=1)
     """
-    try:
-        return td1 / td2
-    except TypeError:
-        # Python 3.2 gets division
-        # http://bugs.python.org/issue2706
-        return td1.total_seconds() / td2.total_seconds()
+
+    td = datetime.timedelta()
+    nanoseconds = 0
+    multiplier = dict(
+        seconds=1000000000,
+        milliseconds=1000000,
+        microseconds=1000,
+    )
+
+    def __init__(self, **kwargs):
+        vars(self).update(kwargs)
+
+    @classmethod
+    def derive(cls, unit, value):
+        if unit == 'nanoseconds':
+            return _Saved_NS(nanoseconds=value)
+
+        try:
+            raw_td = datetime.timedelta(**{unit: value})
+        except TypeError:
+            raise ValueError(f"Invalid unit {unit}")
+        res = _Saved_NS(td=raw_td)
+        with contextlib.suppress(KeyError):
+            res.nanoseconds = int(value * cls.multiplier[unit]) % 1000
+        return res
+
+    def __add__(self, other):
+        return _Saved_NS(
+            td=self.td + other.td, nanoseconds=self.nanoseconds + other.nanoseconds
+        )
+
+    def resolve(self):
+        """
+        Resolve any nanoseconds into the microseconds field,
+        discarding any nanosecond resolution (but honoring partial
+        microseconds).
+        """
+        addl_micros = round(self.nanoseconds / 1000)
+        return self.td + datetime.timedelta(microseconds=addl_micros)
+
+    def __repr__(self):
+        return f'_Saved_NS(td={self.td!r}, nanoseconds={self.nanoseconds!r})'
 
 
 def date_range(start=None, stop=None, step=None):
@@ -499,6 +600,9 @@ def date_range(start=None, stop=None, step=None):
     True
     >>> datetime.datetime(2005,12,25) in my_range
     False
+    >>> from_now = date_range(stop=datetime.datetime(2099, 12, 31))
+    >>> next(from_now)
+    datetime.datetime(...)
     """
     if step is None:
         step = datetime.timedelta(days=1)

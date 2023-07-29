@@ -1,17 +1,13 @@
 """Pytest fixtures and other helpers for doing testing by end-users."""
 
-from __future__ import absolute_import, division, print_function
-
-__metaclass__ = type
-
-from contextlib import closing
+from contextlib import closing, contextmanager
 import errno
 import socket
 import threading
 import time
+import http.client
 
 import pytest
-from six.moves import http_client
 
 import cheroot.server
 from cheroot.test import webtest
@@ -23,17 +19,18 @@ ANY_INTERFACE_IPV4 = '0.0.0.0'
 ANY_INTERFACE_IPV6 = '::'
 
 config = {
-        cheroot.wsgi.Server: {
-                'bind_addr': (NO_INTERFACE, EPHEMERAL_PORT),
-                'wsgi_app': None,
-        },
-        cheroot.server.HTTPServer: {
-                'bind_addr': (NO_INTERFACE, EPHEMERAL_PORT),
-                'gateway': cheroot.server.Gateway,
-        },
+    cheroot.wsgi.Server: {
+        'bind_addr': (NO_INTERFACE, EPHEMERAL_PORT),
+        'wsgi_app': None,
+    },
+    cheroot.server.HTTPServer: {
+        'bind_addr': (NO_INTERFACE, EPHEMERAL_PORT),
+        'gateway': cheroot.server.Gateway,
+    },
 }
 
 
+@contextmanager
 def cheroot_server(server_factory):
     """Set up and tear down a Cheroot server instance."""
     conf = config[server_factory].copy()
@@ -43,8 +40,8 @@ def cheroot_server(server_factory):
         try:
             actual_bind_addr = (interface, bind_port)
             httpserver = server_factory(  # create it
-                    bind_addr=actual_bind_addr,
-                    **conf
+                bind_addr=actual_bind_addr,
+                **conf,
             )
         except OSError:
             pass
@@ -65,47 +62,47 @@ def cheroot_server(server_factory):
 @pytest.fixture
 def wsgi_server():
     """Set up and tear down a Cheroot WSGI server instance."""
-    for srv in cheroot_server(cheroot.wsgi.Server):
+    with cheroot_server(cheroot.wsgi.Server) as srv:
         yield srv
 
 
 @pytest.fixture
 def native_server():
     """Set up and tear down a Cheroot HTTP server instance."""
-    for srv in cheroot_server(cheroot.server.HTTPServer):
+    with cheroot_server(cheroot.server.HTTPServer) as srv:
         yield srv
 
 
 class _TestClient:
     def __init__(self, server):
         self._interface, self._host, self._port = _get_conn_data(
-                server.bind_addr,
+            server.bind_addr,
         )
         self.server_instance = server
         self._http_connection = self.get_connection()
 
     def get_connection(self):
         name = '{interface}:{port}'.format(
-                interface=self._interface,
-                port=self._port,
+            interface=self._interface,
+            port=self._port,
         )
         conn_cls = (
-                http_client.HTTPConnection
-                if self.server_instance.ssl_adapter is None else
-                http_client.HTTPSConnection
+            http.client.HTTPConnection
+            if self.server_instance.ssl_adapter is None else
+            http.client.HTTPSConnection
         )
         return conn_cls(name)
 
     def request(
-            self, uri, method='GET', headers=None, http_conn=None,
-            protocol='HTTP/1.1',
+        self, uri, method='GET', headers=None, http_conn=None,
+        protocol='HTTP/1.1',
     ):
         return webtest.openURL(
-                uri, method=method,
-                headers=headers,
-                host=self._host, port=self._port,
-                http_conn=http_conn or self._http_connection,
-                protocol=protocol,
+            uri, method=method,
+            headers=headers,
+            host=self._host, port=self._port,
+            http_conn=http_conn or self._http_connection,
+            protocol=protocol,
         )
 
     def __getattr__(self, attr_name):
@@ -122,9 +119,7 @@ def _probe_ipv6_sock(interface):
     try:
         with closing(socket.socket(family=socket.AF_INET6)) as sock:
             sock.bind((interface, 0))
-    except (OSError, socket.error) as sock_err:
-        # In Python 3 socket.error is an alias for OSError
-        # In Python 2 socket.error is a subclass of IOError
+    except OSError as sock_err:
         if sock_err.errno != errno.EADDRNOTAVAIL:
             raise
     else:

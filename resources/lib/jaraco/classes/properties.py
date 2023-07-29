@@ -15,8 +15,10 @@ class NonDataProperty:
     >>> x.foo = 4
     >>> x.foo
     4
+
+    '...' below should be 'jaraco.classes' but for pytest-dev/pytest#3396
     >>> X.foo
-    <jaraco.classes.properties.NonDataProperty object at ...>
+    <....properties.NonDataProperty object at ...>
     """
 
     def __init__(self, fget):
@@ -30,14 +32,14 @@ class NonDataProperty:
         return self.fget(obj)
 
 
-class ClassProperty:
+class classproperty:
     """
     Like @property but applies at the class level.
 
 
-    >>> class X(metaclass=ClassProperty.Meta):
+    >>> class X(metaclass=classproperty.Meta):
     ...   val = None
-    ...   @ClassProperty
+    ...   @classproperty
     ...   def foo(cls):
     ...     return cls.val
     ...   @foo.setter
@@ -69,8 +71,8 @@ class ClassProperty:
     Attempting to set an attribute where no setter was defined
     results in an AttributeError:
 
-    >>> class GetOnly(metaclass=ClassProperty.Meta):
-    ...   @ClassProperty
+    >>> class GetOnly(metaclass=classproperty.Meta):
+    ...   @classproperty
     ...   def foo(cls):
     ...     return 'bar'
     >>> GetOnly.foo = 3
@@ -81,12 +83,12 @@ class ClassProperty:
     It is also possible to wrap a classmethod or staticmethod in
     a classproperty.
 
-    >>> class Static(metaclass=ClassProperty.Meta):
-    ...   @ClassProperty
+    >>> class Static(metaclass=classproperty.Meta):
+    ...   @classproperty
     ...   @classmethod
     ...   def foo(cls):
     ...     return 'foo'
-    ...   @ClassProperty
+    ...   @classproperty
     ...   @staticmethod
     ...   def bar():
     ...     return 'bar'
@@ -102,7 +104,7 @@ class ClassProperty:
 
     >>> class X:
     ...   val = None
-    ...   @ClassProperty
+    ...   @classproperty
     ...   def foo(cls):
     ...     return cls.val
     ...   @foo.setter
@@ -136,12 +138,12 @@ class ClassProperty:
     class Meta(type):
         def __setattr__(self, key, value):
             obj = self.__dict__.get(key, None)
-            if type(obj) is ClassProperty:
+            if type(obj) is classproperty:
                 return obj.__set__(self, value)
             return super().__setattr__(key, value)
 
     def __init__(self, fget, fset=None):
-        self.fget = self._fix_function(fget)
+        self.fget = self._ensure_method(fget)
         self.fset = fset
         fset and self.setter(fset)
 
@@ -151,19 +153,18 @@ class ClassProperty:
     def __set__(self, owner, value):
         if not self.fset:
             raise AttributeError("can't set attribute")
-        if type(owner) is not ClassProperty.Meta:
+        if type(owner) is not classproperty.Meta:
             owner = type(owner)
         return self.fset.__get__(None, owner)(value)
 
     def setter(self, fset):
-        self.fset = self._fix_function(fset)
+        self.fset = self._ensure_method(fset)
         return self
 
     @classmethod
-    def _fix_function(cls, fn):
+    def _ensure_method(cls, fn):
         """
         Ensure fn is a classmethod or staticmethod.
         """
-        if not isinstance(fn, (classmethod, staticmethod)):
-            return classmethod(fn)
-        return fn
+        needs_method = not isinstance(fn, (classmethod, staticmethod))
+        return classmethod(fn) if needs_method else fn
