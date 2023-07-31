@@ -130,7 +130,6 @@ def request_token_spotty(spotty, use_creds=True):
     if spotty.playback_supported:
         try:
             args = ["-t", "--client-id", CLIENTID, "--scope", ",".join(SCOPE), "-n", "temp-spotty"]
-            log_msg("request_token_spotty args: %s" % " ".join(args))
             done = Event()
             spotty = spotty.run_spotty(arguments=args, use_creds=use_creds)
             watcher = Thread(target=kill_on_timeout, args=(done, 5, spotty))
@@ -451,24 +450,33 @@ class Spotty(object):
                     "--enable-audio-cache",
                     "--ap-port", ap_port
             ]
-            if use_creds:
-                # use username/password login for spotty
-                addon = xbmcaddon.Addon(id=ADDON_ID)
-                username = addon.getSetting("username")
-                password = addon.getSetting("password")
-                del addon
-                if username and password:
-                    args += ["-u", username, "-p", password]
+
             if disable_discovery:
                 args += ["--disable-discovery"]
             if arguments:
                 args += arguments
             if "-n" not in args:
                 args += ["-n", self.playername]
+
+            loggable_args = args.copy()
+
+            if use_creds:
+                # Use username/password login for spotty
+                addon = xbmcaddon.Addon(id=ADDON_ID)
+                username = addon.getSetting("username")
+                password = addon.getSetting("password")
+                del addon
+                if username and password:
+                    args += ["-u", username, "-p", password]
+                    loggable_args += ["-u", username, "-p", "****"]
+
+            log_msg("run_spotty args: %s" % " ".join(loggable_args))
+
             startupinfo = None
             if os.name == 'nt':
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
             return subprocess.Popen(args, startupinfo=startupinfo, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT)
         except Exception as exc:

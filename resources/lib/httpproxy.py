@@ -123,9 +123,12 @@ class Root:
                 yield wave_header
                 bytes_written = len(wave_header)
 
-            track_id_uri = f'spotify:track:{track_id}'
             # Get OGG data from spotty stdout and append to our buffer
-            args = ["-n", "temp", "--single-track", track_id_uri]
+            track_id_uri = f'spotify:track:{track_id}'
+            args = ["-n", "temp",
+                    # "--enable-volume-normalisation", DOES NOT WORK - LOUD HISS
+                    "--initial-volume", "25",
+                    "--single-track", track_id_uri]
             if self.spotty_bin is None:
                 self.spotty_bin = self.__spotty.run_spotty(args, use_creds=True)
             if not self.spotty_bin.returncode:
@@ -139,7 +142,6 @@ class Root:
             # Ignore the first x bytes to match the range request
             if range_l:
                 self.spotty_bin.stdout.read(range_l)
-                #del stdout[:range_l]
 
             # Loop as long as there's something to output
             while bytes_written < length:
