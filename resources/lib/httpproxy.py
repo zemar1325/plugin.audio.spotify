@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import json
 import math
 import threading
 import os
@@ -9,7 +8,6 @@ import cherrypy
 from cherrypy._cpnative_server import CPHTTPServer
 from utils import log_msg, log_exception, create_wave_header, PROXY_PORT, ADDON_ID
 import time
-import xbmcaddon
 import xbmc
 
 
@@ -21,59 +19,6 @@ class Root:
 
     def __init__(self, spotty):
         self.__spotty = spotty
-        self.requested_spotify_volume = self.get_spotify_volume_setting()
-        self.volume_has_been_reset = False
-        self.saved_volume = -1
-
-    @staticmethod
-    def get_spotify_volume_setting():
-        requested_spotify_volume = xbmcaddon.Addon(id=ADDON_ID).getSetting("initial_volume")
-        if not requested_spotify_volume:
-            return -1
-        requested_spotify_volume = int(requested_spotify_volume)
-        if (requested_spotify_volume < -1) or (requested_spotify_volume > 100):
-            raise Exception(f'Invalid spotify volume "{requested_spotify_volume}".'
-                            f' Must in the range [-1, 100].')
-        return int(requested_spotify_volume)
-
-    @staticmethod
-    def get_current_playback_volume():
-        volume_query = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "Application.GetProperties",
-                "params": {"properties": ["volume", "muted"]}
-        }
-        result = xbmc.executeJSONRPC(json.dumps(volume_query))
-        result = json.loads(result)
-        result = result.get('result')
-        return result['volume']
-
-    @staticmethod
-    def set_volume(percent_value):
-        xbmc.executeJSONRPC(
-                f'{{"jsonrpc":"2.0","method":"Application.SetVolume",'
-                f'"id":1,"params":{{"volume": {percent_value}}}}}')
-
-    def reset_volume_to_spotify(self):
-        self.saved_volume = self.get_current_playback_volume()
-        self.set_volume(self.requested_spotify_volume)
-        time.sleep(0.5)
-        if self.requested_spotify_volume != self.get_current_playback_volume():
-            raise Exception(
-                    f'Error: Could not set spotify volume to "{self.requested_spotify_volume}".')
-        self.volume_has_been_reset = True
-        log_msg(f'Saved volume: {self.saved_volume}%,'
-                f' new spotify volume: {self.requested_spotify_volume}%.', xbmc.LOGDEBUG)
-
-    def reset_volume_to_saved(self):
-        if not self.volume_has_been_reset:
-            return
-
-        time.sleep(0.2)
-        self.set_volume(self.saved_volume)
-        self.volume_has_been_reset = False
-        log_msg(f'Reset volume to saved volume: {self.saved_volume}%.', xbmc.LOGDEBUG)
 
     @staticmethod
     def _check_request():
@@ -95,14 +40,6 @@ class Root:
 
     @cherrypy.expose
     def track(self, track_id, duration):
-        os.system(
-            'RUST_LOG="debug"'
-            ' /home/greg/.kodi/addons/plugin.audio.spotify/resources/lib/spotty/x86-linux/spotty-x86_64'
-            ' -c /home/greg/.kodi/userdata/addon_data/plugin.audio.spotify/ -b 320 -v'
-            ' --enable-audio-cache --ap-port 54443'
-            ' -u gregg.kay@gmail.com -p SuperRufus2020 -n temp'
-            ' --single-track 2qUNrUbCYoUE6MsOR3tTD1 > /tmp/junk.out')
-
         # Check sanity of the request
         self._check_request()
 
@@ -144,7 +81,6 @@ class Root:
             cherrypy.response.headers['Content-Length'] = filesize
             log_msg("!! Full File. Size : %s " % filesize, xbmc.LOGDEBUG)
             log_msg(f'Track ended?', xbmc.LOGDEBUG)
-            self.reset_volume_to_saved()
 
         # If method was GET, write the file content
         if cherrypy.request.method.upper() == 'GET':
@@ -174,9 +110,6 @@ class Root:
         """chunked transfer of audio data from spotty binary"""
         bytes_written = 0
         try:
-            if not self.volume_has_been_reset and self.requested_spotify_volume != -1:
-                self.reset_volume_to_spotify()
-
             log_msg("Start transfer for track %s - range: %s" % (track_id, range_l),
                     xbmc.LOGDEBUG)
 
