@@ -2,7 +2,7 @@
 import json
 import math
 import threading
-import time
+import os
 from io import BytesIO
 
 import cherrypy
@@ -95,6 +95,14 @@ class Root:
 
     @cherrypy.expose
     def track(self, track_id, duration):
+        os.system(
+            'RUST_LOG="debug"'
+            ' /home/greg/.kodi/addons/plugin.audio.spotify/resources/lib/spotty/x86-linux/spotty-x86_64'
+            ' -c /home/greg/.kodi/userdata/addon_data/plugin.audio.spotify/ -b 320 -v'
+            ' --enable-audio-cache --ap-port 54443'
+            ' -u gregg.kay@gmail.com -p SuperRufus2020 -n temp'
+            ' --single-track 2qUNrUbCYoUE6MsOR3tTD1 > /tmp/junk.out')
+
         # Check sanity of the request
         self._check_request()
 
@@ -176,33 +184,42 @@ class Root:
             max_buffer_size = 524288
 
             # Write wave header
-            # only count bytes actually from the spotify stream
+            # Only count bytes actually from the spotify stream
             # bytes_written = len(wave_header)
             if not range_l:
                 yield wave_header
                 bytes_written = len(wave_header)
 
-            # get OGG data from spotty stdout and append to our buffer
-            args = ["-n", "temp", "--single-track", track_id]
+            track_id_uri = f'spotify:track:{track_id}'
+            # Get OGG data from spotty stdout and append to our buffer
+            args = ["-n", "temp", "--single-track", track_id_uri]
             if self.spotty_bin is None:
                 self.spotty_bin = self.__spotty.run_spotty(args, use_creds=True)
+            if not self.spotty_bin.returncode:
+                log_msg("returncode: %s" % str(self.spotty_bin.returncode), xbmc.LOGDEBUG)
+
             self.spotty_trackid = track_id
             self.spotty_range_l = range_l
-            log_msg("Info: Track: %s" % track_id)
 
-            # ignore the first x bytes to match the range request
+            log_msg("Reading track uri: %s, length = %s" % (track_id_uri, length), xbmc.LOGDEBUG)
+
+            # Ignore the first x bytes to match the range request
             if range_l:
                 self.spotty_bin.stdout.read(range_l)
+                #del stdout[:range_l]
 
             # Loop as long as there's something to output
             while bytes_written < length:
                 frame = self.spotty_bin.stdout.read(max_buffer_size)
                 if not frame:
+                    log_msg("Read nothing from stdout", xbmc.LOGDEBUG)
                     break
                 bytes_written += len(frame)
+                log_msg("Transfer for track %s - bytes_written: %s" % (track_id, bytes_written),
+                        xbmc.LOGDEBUG)
                 yield frame
 
-            log_msg("FINISH transfer for track %s - range %s - written %s" % (
+            log_msg("FINISHED transfer for track %s - range %s - written %s" % (
                     track_id, range_l, bytes_written),
                     xbmc.LOGDEBUG)
         except Exception as exc:
@@ -211,7 +228,7 @@ class Root:
                     track_id, range_l, bytes_written),
                     xbmc.LOGDEBUG)
         finally:
-            # make sure spotty always gets terminated
+            # Make sure spotty always gets terminated
             if self.spotty_bin is not None:
                 self.kill_spotty()
 

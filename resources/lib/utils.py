@@ -130,6 +130,7 @@ def request_token_spotty(spotty, use_creds=True):
     if spotty.playback_supported:
         try:
             args = ["-t", "--client-id", CLIENTID, "--scope", ",".join(SCOPE), "-n", "temp-spotty"]
+            log_msg("request_token_spotty args: %s" % " ".join(args))
             done = Event()
             spotty = spotty.run_spotty(arguments=args, use_creds=use_creds)
             watcher = Thread(target=kill_on_timeout, args=(done, 5, spotty))
@@ -441,6 +442,7 @@ class Spotty(object):
     def run_spotty(self, arguments=None, use_creds=False, disable_discovery=False, ap_port="54443"):
         """On supported platforms we include spotty binary"""
         try:
+            # os.environ["RUST_LOG"] = "debug"
             args = [
                     self.__spotty_binary,
                     "-c", self.__cache_path,
