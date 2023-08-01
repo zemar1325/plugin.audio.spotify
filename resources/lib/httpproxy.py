@@ -7,34 +7,36 @@ from io import BytesIO
 
 import cherrypy
 from cherrypy._cpnative_server import CPHTTPServer
-from utils import log_msg, log_exception, create_wave_header, PROXY_PORT, ADDON_ID
+from utils import create_wave_header, log_msg, log_exception, PROXY_PORT, ADDON_ID
 import time
 import xbmcaddon
 import xbmc
 
+LIBRESPOT_INITIAL_VOLUME = "50"
+MAX_SPOTTY_CHUNK_SIZE = 524288
+SPOTIFY_TRACK_PREFIX = "spotify:track:"
+
 
 class Root:
-    spotty = None
-    spotty_bin = None
-    spotty_trackid = None
-    spotty_range_l = None
-
     def __init__(self, spotty):
-        self.__spotty = spotty
-        self.requested_spotify_volume = self.get_spotify_volume_setting()
-        self.volume_has_been_reset = False
+        self.spotty = spotty
+        self.spotty_bin = None
+        self.spotty_trackid = None
+        self.spotty_range_l = None
+        self.requested_kodi_volume = self.get_spotify_volume_setting()
+        self.kodi_volume_has_been_reset = False
         self.saved_volume = -1
 
     @staticmethod
     def get_spotify_volume_setting():
-        requested_spotify_volume = xbmcaddon.Addon(id=ADDON_ID).getSetting("initial_volume")
-        if not requested_spotify_volume:
+        requested_kodi_volume = xbmcaddon.Addon(id=ADDON_ID).getSetting("initial_volume")
+        if not requested_kodi_volume:
             return -1
-        requested_spotify_volume = int(requested_spotify_volume)
-        if (requested_spotify_volume < -1) or (requested_spotify_volume > 100):
-            raise Exception(f'Invalid spotify volume "{requested_spotify_volume}".'
+        requested_kodi_volume = int(requested_kodi_volume)
+        if (requested_kodi_volume < -1) or (requested_kodi_volume > 100):
+            raise Exception(f'Invalid initial volume "{requested_kodi_volume}".'
                             f' Must in the range [-1, 100].')
-        return int(requested_spotify_volume)
+        return int(requested_kodi_volume)
 
     @staticmethod
     def get_current_playback_volume():
@@ -55,24 +57,26 @@ class Root:
                 f'{{"jsonrpc":"2.0","method":"Application.SetVolume",'
                 f'"id":1,"params":{{"volume": {percent_value}}}}}')
 
-    def reset_volume_to_spotify(self):
-        self.saved_volume = self.get_current_playback_volume()
-        self.set_volume(self.requested_spotify_volume)
+    def reset_kodi_volume(self):
+        if self.kodi_volume_has_been_reset or self.requested_kodi_volume == -1:
+            return
+
+        self.set_volume(self.requested_kodi_volume)
         time.sleep(0.5)
-        if self.requested_spotify_volume != self.get_current_playback_volume():
+        if self.requested_kodi_volume != self.get_current_playback_volume():
             raise Exception(
-                    f'Error: Could not set spotify volume to "{self.requested_spotify_volume}".')
-        self.volume_has_been_reset = True
+                    f'Error: Could not set spotify volume to "{self.requested_kodi_volume}".')
+        self.kodi_volume_has_been_reset = True
         log_msg(f'Saved volume: {self.saved_volume}%,'
-                f' new spotify volume: {self.requested_spotify_volume}%.', xbmc.LOGDEBUG)
+                f' new spotify volume: {self.requested_kodi_volume}%.', xbmc.LOGDEBUG)
 
     def reset_volume_to_saved(self):
-        if not self.volume_has_been_reset:
+        if not self.kodi_volume_has_been_reset:
             return
 
         time.sleep(0.2)
         self.set_volume(self.saved_volume)
-        self.volume_has_been_reset = False
+        self.kodi_volume_has_been_reset = False
         log_msg(f'Reset volume to saved volume: {self.saved_volume}%.', xbmc.LOGDEBUG)
 
     @staticmethod
@@ -102,8 +106,8 @@ class Root:
         duration = int(float(duration))
         wave_header, filesize = create_wave_header(duration)
         request_range = cherrypy.request.headers.get('Range', '')
-        # response timeout must be at least the duration of the track: read/write loop
-        # checks for timeout and stops pushing audio to player if it occurs
+        # Response timeout must be at least the duration of the track read/write loop.
+        # Checks for timeout and stops pushing audio to player if it occurs.
         cherrypy.response.timeout = int(math.ceil(duration * 1.5))
 
         range_l = 0
@@ -111,11 +115,11 @@ class Root:
 
         # headers
         if request_range and request_range != "bytes=0-":
-            # partial request
+            # Partial request.
             cherrypy.response.status = '206 Partial Content'
             cherrypy.response.headers['Content-Type'] = 'audio/x-wav'
             rng = cherrypy.request.headers["Range"].split("bytes=")[1].split("-")
-            log_msg("request header range: %s" % (cherrypy.request.headers['Range']), xbmc.LOGDEBUG)
+            log_msg(f"Request header range: {cherrypy.request.headers['Range']}", xbmc.LOGDEBUG)
             range_l = int(rng[0])
             try:
                 range_r = int(rng[1])
@@ -124,26 +128,23 @@ class Root:
 
             cherrypy.response.headers['Accept-Ranges'] = 'bytes'
             cherrypy.response.headers['Content-Length'] = range_r - range_l
-            cherrypy.response.headers['Content-Range'] = "bytes %s-%s/%s" % (
-                    range_l, range_r, filesize)
-            log_msg("partial request range: %s, length: %s" % (
-                    cherrypy.response.headers['Content-Range'],
-                    cherrypy.response.headers['Content-Length']), xbmc.LOGDEBUG)
+            cherrypy.response.headers['Content-Range'] = f"bytes {range_l}-{range_r}/{filesize}"
+            log_msg(f"Partial request range: {cherrypy.response.headers['Content-Range']},"
+                    f" length: {cherrypy.response.headers['Content-Length']}", xbmc.LOGDEBUG)
         else:
-            # full file
+            # Full file
             cherrypy.response.headers['Content-Type'] = 'audio/x-wav'
             cherrypy.response.headers['Accept-Ranges'] = 'bytes'
             cherrypy.response.headers['Content-Length'] = filesize
-            log_msg("!! Full File. Size : %s " % filesize, xbmc.LOGDEBUG)
+            log_msg(f"Full File. Size: {filesize}.", xbmc.LOGDEBUG)
             log_msg(f'Track ended?', xbmc.LOGDEBUG)
             self.reset_volume_to_saved()
 
-        # If method was GET, write the file content
+        # If method was GET, then write the file content.
         if cherrypy.request.method.upper() == 'GET':
-
             if self.spotty_bin is not None:
                 # If spotty binary still attached for a different request, try to terminate it.
-                log_msg("WHOOPS!!! Running spotty detected - killing it to continue.",
+                log_msg("WHOOPS!!! A running 'spotty' detected - killing it to continue.",
                         xbmc.LOGERROR)
                 self.kill_spotty()
 
@@ -163,66 +164,61 @@ class Root:
         log_msg("Killing spotty.")
 
     def send_audio_stream(self, track_id, length, wave_header, range_l):
-        """chunked transfer of audio data from spotty binary"""
+        """Chunked transfer of audio data from spotty binary"""
         bytes_written = 0
+
         try:
-            if not self.volume_has_been_reset and self.requested_spotify_volume != -1:
-                self.reset_volume_to_spotify()
+            self.reset_kodi_volume()
 
-            log_msg("Start transfer for track %s - range: %s" % (track_id, range_l),
-                    xbmc.LOGDEBUG)
+            log_msg(f"Start transfer for track {track_id} - range: {range_l}", xbmc.LOGDEBUG)
 
-            # Initialize some loop vars
-            max_buffer_size = 524288
-
-            # Write wave header
-            # Only count bytes actually from the spotify stream
-            # bytes_written = len(wave_header)
+            # Write wave header.
+            # Only count bytes actually from the spotify stream.
             if not range_l:
                 yield wave_header
                 bytes_written = len(wave_header)
 
-            # Get OGG data from spotty stdout and append to our buffer
-            track_id_uri = f'spotify:track:{track_id}'
+            # Get data from spotty stdout and append to our buffer.
+            track_id_uri = SPOTIFY_TRACK_PREFIX + track_id
             args = ["-n", "temp",
-                    # "--enable-volume-normalisation", DOES NOT WORK - LOUD HISS
-                    "--initial-volume", "50",
+                    "--enable-volume-normalisation",
+                    "--normalisation-gain-type", "track",
+                    "--initial-volume", LIBRESPOT_INITIAL_VOLUME,
                     "--single-track", track_id_uri]
             if self.spotty_bin is None:
-                self.spotty_bin = self.__spotty.run_spotty(args, use_creds=True)
+                self.spotty_bin = self.spotty.run_spotty(args, use_creds=True)
             if not self.spotty_bin.returncode:
-                log_msg("returncode: %s" % str(self.spotty_bin.returncode), xbmc.LOGDEBUG)
+                log_msg(f"returncode: {self.spotty_bin.returncode}", xbmc.LOGDEBUG)
 
             self.spotty_trackid = track_id
             self.spotty_range_l = range_l
 
-            log_msg("Reading track uri: %s, length = %s" % (track_id_uri, length), xbmc.LOGDEBUG)
+            log_msg(f"Reading track uri: {track_id_uri}, length = {length}", xbmc.LOGDEBUG)
 
-            # Ignore the first x bytes to match the range request
+            # Ignore the first x bytes to match the range request.
             if range_l:
                 self.spotty_bin.stdout.read(range_l)
 
-            # Loop as long as there's something to output
+            # Loop as long as there's something to output.
             while bytes_written < length:
-                frame = self.spotty_bin.stdout.read(max_buffer_size)
+                frame = self.spotty_bin.stdout.read(MAX_SPOTTY_CHUNK_SIZE)
                 if not frame:
-                    log_msg("Read nothing from stdout", xbmc.LOGDEBUG)
+                    log_msg("Nothing read from stdout.", xbmc.LOGDEBUG)
                     break
                 bytes_written += len(frame)
-                log_msg("Transfer for track %s - bytes_written: %s" % (track_id, bytes_written),
-                        xbmc.LOGDEBUG)
+                log_msg(
+                    f"Continuing transfer for track {track_id} - bytes written = {bytes_written}",
+                    xbmc.LOGDEBUG)
                 yield frame
 
-            log_msg("FINISHED transfer for track %s - range %s - written %s" % (
-                    track_id, range_l, bytes_written),
-                    xbmc.LOGDEBUG)
+            log_msg(f"FINISHED transfer for track {track_id}"
+                    f" - range {range_l} - bytes written {bytes_written}.", xbmc.LOGDEBUG)
         except Exception as exc:
             log_exception(__name__, exc)
-            log_msg("EXCEPTION FINISH transfer for track %s - range %s - written %s" % (
-                    track_id, range_l, bytes_written),
-                    xbmc.LOGDEBUG)
+            log_msg("EXCEPTION FINISH transfer for track {track_id}"
+                    f" - range {range_l} - bytes written {bytes_written}.", xbmc.LOGDEBUG)
         finally:
-            # Make sure spotty always gets terminated
+            # Make sure spotty always gets terminated.
             if self.spotty_bin is not None:
                 self.kill_spotty()
 
@@ -240,7 +236,7 @@ class Root:
     @cherrypy.expose
     def nexttrack(self):
         """play silence while spotify connect player is waiting for the next track"""
-        log_msg('play silence while spotify connect player is waiting for the next track',
+        log_msg('Play silence while spotify connect player is waiting for the next track',
                 xbmc.LOGDEBUG)
         return self.silence(20)
 
@@ -261,20 +257,17 @@ class Root:
     def playercmd(self, cmd):
         if cmd == "start":
             cherrypy.response.headers['Content-Type'] = 'text'
-            log_msg("playback start requested by connect")
+            log_msg("Playback start requested by connect.")
             xbmc.executebuiltin("RunPlugin(plugin://plugin.audio.spotify/?action=play_connect)")
             return "OK"
         elif cmd == "stop":
             cherrypy.response.headers['Content-Type'] = 'text'
-            log_msg("playback stop requested by connect")
+            log_msg("Playback stop requested by connect")
             xbmc.executebuiltin("PlayerControl(Stop)")
             return "OK"
 
 
 class ProxyRunner(threading.Thread):
-    __server = None
-    __root = None
-
     def __init__(self, spotty):
         self.__root = Root(spotty)
         log = cherrypy.log

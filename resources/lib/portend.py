@@ -23,11 +23,13 @@ def client_host(server_host):
     if server_host == '0.0.0.0':
         # 0.0.0.0 is INADDR_ANY, which should answer on localhost.
         return '127.0.0.1'
+
     if server_host in ('::', '::0', '::0.0.0.0'):
         # :: is IN6ADDR_ANY, which should answer on localhost.
         # ::0 and ::0.0.0.0 are non-canonical but common
         # ways to write IN6ADDR_ANY.
         return '::1'
+
     return server_host
 
 
@@ -37,9 +39,9 @@ class Checker(object):
 
     def assert_free(self, host, port=None):
         """
-        Assert that the given addr is free
-        in that all attempts to connect fail within the timeout
-        or raise a PortNotFree exception.
+        Assert that the given addr is free;
+        in that all attempts to connect fail within the
+        timeout or raise a PortNotFree exception.
 
         >>> free_port = find_available_local_port()
 
@@ -68,7 +70,7 @@ class Checker(object):
 
     def _connect(self, af, socktype, proto, canonname, sa):
         s = socket.socket(af, socktype, proto)
-        # fail fast with a small timeout
+        # Fail fast with a small timeout.
         s.settimeout(self.timeout)
 
         with contextlib.closing(s):
@@ -77,7 +79,7 @@ class Checker(object):
             except socket.error:
                 return
 
-        # the connect succeeded, so the port isn't free
+        # The connect succeeded, so the port isn't free.
         port, host = sa[:2]
         tmpl = "Port {port} is in use on {host}."
         raise PortNotFree(tmpl.format(**locals()))
@@ -94,8 +96,8 @@ class PortNotFree(IOError):
 def free(host, port, timeout=float('Inf')):
     """
     Wait for the specified port to become free (dropping or rejecting
-    requests). Return when the port is free or raise a Timeout if timeout has
-    elapsed.
+    requests). Return when the port is free or raise a Timeout if timeout
+    has elapsed.
 
     Timeout may be specified in seconds or as a timedelta.
     If timeout is None or ∞, the routine will run indefinitely.
@@ -109,7 +111,7 @@ def free(host, port, timeout=float('Inf')):
 
     while not timer.expired():
         try:
-            # Expect a free port, so use a small timeout
+            # Expect a free port, so use a small timeout.
             Checker(timeout=0.1).assert_free(host, port)
             return
         except PortNotFree:
@@ -168,6 +170,7 @@ def find_available_local_port():
     sock.bind(addr)
     addr, port = sock.getsockname()[:2]
     sock.close()
+
     return port
 
 

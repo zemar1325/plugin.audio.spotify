@@ -19,23 +19,18 @@ import time
 
 class MainService:
     """our main background service running the various threads"""
-    sp = None
-    addon = None
-    connect_daemon = None
-    webservice = None
-    spotty = None
-    current_user = None
-    auth_token = None
 
     def __init__(self):
+        self.current_user = None
+        self.auth_token = None
         self.addon = xbmcaddon.Addon(id=ADDON_ID)
         self.win = xbmcgui.Window(10000)
         self.kodimonitor = xbmc.Monitor()
         self.spotty = Spotty()
 
-        # spotipy and the webservice are always prestarted in the background
-        # the auth key for spotipy will be set afterwards
-        # the webserver is also used for the authentication callbacks from spotify api
+        # spotipy and the webservice are always prestarted in the background.
+        # The auth key for spotipy will be set afterwards.
+        # The webserver is also used for the authentication callbacks from spotify api.
         self.sp = spotipy.Spotify()
 
         self.proxy_runner = ProxyRunner(self.spotty)
@@ -43,17 +38,17 @@ class MainService:
         webport = self.proxy_runner.get_port()
         log_msg('started webproxy at port {0}'.format(webport))
 
-        # authenticate at startup
+        # Authenticate at startup.
         self.renew_token()
 
-        # start mainloop
+        # Start mainloop.
         self.main_loop()
 
     def main_loop(self):
         """main loop which keeps our threads alive and refreshes the token"""
         loop_timer = 5
         while not self.kodimonitor.waitForAbort(loop_timer):
-            # monitor logged in user
+            # Monitor logged in user.
             cmd = self.win.getProperty("spotify-cmd")
             if cmd == "__LOGOUT__":
                 log_msg("logout cmd received")
@@ -62,33 +57,32 @@ class MainService:
                 self.auth_token = None
                 self.switch_user()
             elif not self.auth_token:
-                # we do not yet have a token
+                # We do not yet have a token.
                 log_msg("retrieving token...")
                 if self.renew_token():
                     xbmc.executebuiltin("Container.Refresh")
             elif self.auth_token and (self.auth_token['expires_at'] - 60) <= (int(time.time())):
-                # token needs refreshing !
-                log_msg("token needs to be refreshed")
+                log_msg("Token needs to be refreshed.")
                 self.renew_token()
             else:
                 loop_timer = 5
 
-        # end of loop: we should exit
+        # End of loop: we should exit.
         self.close()
 
     def close(self):
         """shutdown, perform cleanup"""
-        log_msg('Shutdown requested !', xbmc.LOGINFO)
+        log_msg('Shutdown requested!', xbmc.LOGINFO)
         self.spotty.kill_spotty()
         self.proxy_runner.stop()
         del self.addon
         del self.kodimonitor
         del self.win
-        log_msg('stopped', xbmc.LOGINFO)
+        log_msg('Stopped', xbmc.LOGINFO)
 
     def switch_user(self):
         """called whenever we switch to a different user/credentials"""
-        log_msg("login credentials changed")
+        log_msg("Login credentials changed.")
         if self.renew_token():
             xbmc.executebuiltin("Container.Refresh")
 
@@ -111,23 +105,25 @@ class MainService:
         result = False
         auth_token = None
         username = self.get_username()
+
         if username:
-            # stop connect daemon
-            # retrieve token
+            # Stop connect daemon.
+            # Retrieve token.
             log_msg("Retrieving auth token....")
             auth_token = get_token(self.spotty)
+
         if auth_token:
-            log_msg("Retrieved auth token")
+            log_msg("Retrieved auth token.")
             self.auth_token = auth_token
-            # only update token info in spotipy object
+            # Only update token info in spotipy object.
             self.sp._auth = auth_token["access_token"]
             me = self.sp.me()
             self.current_user = me["id"]
-            log_msg("Logged in to Spotify - Username: %s" % self.current_user, xbmc.LOGINFO)
-            # store authtoken and username as window prop for easy access by plugin entry
+            log_msg(f"Logged in to Spotify - Username: {self.current_user}", xbmc.LOGINFO)
+            # Store auth_token and username as window prop for easy access by plugin entry.
             self.win.setProperty("spotify-token", auth_token["access_token"])
             self.win.setProperty("spotify-username", self.current_user)
             self.win.setProperty("spotify-country", me["country"])
             result = True
-        # start experimental spotify connect daemon
+
         return result

@@ -78,13 +78,13 @@ def log_msg(msg, loglevel=xbmc.LOGDEBUG):
         msg = msg.encode('utf-8')
     if DEBUG:
         loglevel = xbmc.LOGINFO
-    xbmc.log("%s --> %s" % (ADDON_ID, msg), level=loglevel)
+    xbmc.log(f"{ADDON_ID} --> {msg}", level=loglevel)
 
 
 def log_exception(modulename, exceptiondetails):
     """helper to properly log an exception"""
     log_msg(format_exc(sys.exc_info()), xbmc.LOGDEBUG)
-    log_msg("Exception in %s ! --> %s" % (modulename, exceptiondetails), xbmc.LOGWARNING)
+    log_msg(f"Exception in {modulename} ! --> {exceptiondetails}", xbmc.LOGWARNING)
 
 
 def addon_setting(settingname, set_value=None):
@@ -102,56 +102,67 @@ def kill_on_timeout(done, timeout, proc):
 
 
 def get_token(spotty):
-    # get authentication token for api - prefer cached version
+    # Get authentication token for api - prefer cached version.
     try:
         if spotty.playback_supported:
-            # try to get a token with spotty
+            # Try to get a token with spotty.
             token_info = request_token_spotty(spotty, use_creds=False)
             if token_info:
-                spotty.get_username()  # save current username in cached spotty creds
+                # Save current username in cached spotty creds.
+                spotty.get_username()
             if not token_info:
                 token_info = request_token_spotty(spotty, use_creds=True)
         else:
-            # request new token with web flow
+            # Request new token with web flow.
             token_info = request_token_web()
     except Exception as exc:
         log_exception("utils.get_token", exc)
         token_info = None
+
     if not token_info:
-        log_msg("Couldn't request authentication token. Username/password error ? "
-                "If you're using a facebook account with Spotify, "
-                "make sure to generate a device account/password in the Spotify accountdetails.")
+        log_msg("Couldn't request authentication token. Username/password error?"
+                " If you're using a facebook account with Spotify,"
+                " make sure to generate a device account/password in the Spotify accountdetails.")
+
     return token_info
 
 
 def request_token_spotty(spotty, use_creds=True):
     """request token by using the spotty binary"""
+    if not spotty.playback_supported:
+        return None
+
     token_info = None
-    if spotty.playback_supported:
-        try:
-            args = ["-t", "--client-id", CLIENTID, "--scope", ",".join(SCOPE), "-n", "temp-spotty"]
-            done = Event()
-            spotty = spotty.run_spotty(arguments=args, use_creds=use_creds)
-            watcher = Thread(target=kill_on_timeout, args=(done, 5, spotty))
-            watcher.daemon = True
-            watcher.start()
-            stdout, stderr = spotty.communicate()
-            done.set()
-            result = None
-            log_msg("request_token_spotty stdout: %s" % stdout)
-            for line in stdout.split():
-                line = line.strip()
-                if line.startswith(b"{\"accessToken\""):
-                    result = eval(line)
-            # transform token info to spotipy compatible format
-            if result:
-                token_info = {'access_token': result['accessToken'],
-                              'expires_in': result['expiresIn'],
-                              'expires_at': int(time.time()) + result['expiresIn'],
-                              'refresh_token': result['accessToken']
-                              }
-        except Exception as exc:
-            log_exception(__name__, exc)
+
+    try:
+        args = ["-t", "--client-id", CLIENTID, "--scope", ",".join(SCOPE), "-n", "temp-spotty"]
+        spotty = spotty.run_spotty(arguments=args, use_creds=use_creds)
+
+        done = Event()
+        watcher = Thread(target=kill_on_timeout, args=(done, 5, spotty))
+        watcher.daemon = True
+        watcher.start()
+
+        stdout, stderr = spotty.communicate()
+        done.set()
+
+        log_msg(f"request_token_spotty stdout: {stdout}")
+        result = None
+        for line in stdout.split():
+            line = line.strip()
+            if line.startswith(b"{\"accessToken\""):
+                result = eval(line)
+
+        # Transform token info to spotipy compatible format.
+        if result:
+            token_info = {'access_token': result['accessToken'],
+                          'expires_in': result['expiresIn'],
+                          'expires_at': int(time.time()) + result['expiresIn'],
+                          'refresh_token': result['accessToken']
+                          }
+    except Exception as exc:
+        log_exception(__name__, exc)
+
     return token_info
 
 
@@ -159,6 +170,7 @@ def request_token_web(force=False):
     """request the (initial) auth token by webbrowser"""
     import spotipy
     from spotipy import oauth2
+
     xbmcvfs.mkdir("special://profile/addon_data/%s/" % ADDON_ID)
     cache_path = "special://profile/addon_data/%s/spotipy.cache" % ADDON_ID
     cache_path = xbmcvfs.translatePath(cache_path)
@@ -166,13 +178,13 @@ def request_token_web(force=False):
     redirect_url = 'http://localhost:%s/callback' % PROXY_PORT
     sp_oauth = oauth2.SpotifyOAuth(CLIENTID, CLIENT_SECRET, redirect_url, scope=scope,
                                    cache_path=cache_path)
-    # get token from cache
+    # Get token from cache.
     token_info = sp_oauth.get_cached_token()
     if not token_info or force:
-        # request token by using the webbrowser
+        # Request token by using the webbrowser.
         auth_url = sp_oauth.get_authorize_url()
 
-        # show message to user that the browser is going to be launched
+        # Show message to user that the browser is going to be launched.
         dialog = xbmcgui.Dialog()
         header = xbmc.getInfoLabel("System.AddonTitle(%s)" % ADDON_ID)
         msg = xbmc.getInfoLabel("$ADDON[%s 11049]" % ADDON_ID)
@@ -180,10 +192,10 @@ def request_token_web(force=False):
         del dialog
 
         if xbmc.getCondVisibility("System.Platform.Android"):
-            # for android we just launch the default android browser
+            # For android we just launch the default android browser.
             xbmc.executebuiltin("StartAndroidActivity(,android.intent.action.VIEW,,%s)" % auth_url)
         else:
-            # use webbrowser module
+            # Use webbrowser module.
             import webbrowser
             log_msg("Launching system-default browser")
             webbrowser.open(auth_url, new=1)
@@ -202,11 +214,13 @@ def request_token_web(force=False):
             response = sp_oauth.parse_response_code(response)
             token_info = sp_oauth.get_access_token(response)
         xbmc.sleep(2000)  # allow enough time for the webbrowser to stop
-    log_msg("Token from web: %s" % token_info, xbmc.LOGDEBUG)
+
+    log_msg(f"Token from web: {token_info}", xbmc.LOGDEBUG)
     sp = spotipy.Spotify(token_info['access_token'])
     username = sp.me()["id"]
     del sp
     addon_setting("username", username)
+
     return token_info
 
 
@@ -218,7 +232,7 @@ def create_wave_header(duration):
     samplerate = 44100
     bitspersample = 16
 
-    # Generate format chunk
+    # Generate format chunk.
     format_chunk_spec = "<4sLHHLLHH"
     format_chunk = struct.pack(
             format_chunk_spec,
@@ -231,7 +245,8 @@ def create_wave_header(duration):
             channels * (bitspersample // 8),  # Blockalign
             bitspersample,  # 16 bits for two byte samples, etc.  => A METTRE A JOUR - POUR TEST
     )
-    # Generate data chunk
+
+    # Generate data chunk.
     data_chunk_spec = "<4sL"
     datasize = numsamples * channels * (bitspersample / 8)
     data_chunk = struct.pack(
@@ -247,27 +262,30 @@ def create_wave_header(duration):
             # Size of data chunk spec + data size
             struct.calcsize(data_chunk_spec) + datasize
     ]
-    # Generate main header
-    all_cunks_size = int(sum(sum_items))
+
+    # Generate main header.
+    all_chunks_size = int(sum(sum_items))
     main_header_spec = "<4sL4s"
     main_header = struct.pack(
             main_header_spec,
             "RIFF".encode(encoding='UTF-8'),
-            all_cunks_size,
+            all_chunks_size,
             "WAVE".encode(encoding='UTF-8')
     )
-    # Write all the contents in
+
+    # Write all the contents in.
     file.write(main_header)
     file.write(format_chunk)
     file.write(data_chunk)
 
-    return file.getvalue(), all_cunks_size + 8
+    return file.getvalue(), all_chunks_size + 8
 
 
 def process_method_on_list(method_to_run, items):
     """helper method that processes a method on each list item
        with pooling if the system supports it"""
     all_items = []
+
     if SUPPORTS_POOL:
         pool = ThreadPool()
         try:
@@ -280,15 +298,17 @@ def process_method_on_list(method_to_run, items):
         pool.join()
     else:
         all_items = [method_to_run(item) for item in items]
+
     all_items = [f for f in all_items if f]
+
     return all_items
 
 
 def get_track_rating(popularity):
     if not popularity:
         return 0
-    else:
-        return int(math.ceil(popularity * 6 / 100.0)) - 1
+
+    return int(math.ceil(popularity * 6 / 100.0)) - 1
 
 
 def parse_spotify_track(track, is_album_track=True, silenced=False, is_connect=False):
@@ -300,6 +320,7 @@ def parse_spotify_track(track, is_album_track=True, silenced=False, is_connect=F
         thumb = track['album']["images"][0]['url']
     else:
         thumb = "DefaultMusicSongs"
+
     duration = track['duration_ms'] / 1000
 
     # if silenced:
@@ -333,6 +354,7 @@ def parse_spotify_track(track, is_album_track=True, silenced=False, is_connect=F
     li.setContentLookup(False)
     li.setProperty('do_not_analyze', 'true')
     li.setMimeType("audio/wave")
+
     return url, li
 
 
@@ -387,10 +409,6 @@ class Spotty(object):
         this is done to prevent hitting a kodi issue where calling one of the infolabel methods
         at playback time causes a crash of the playback
     """
-    playback_supported = False
-    playername = None
-    __spotty_binary = None
-    __cache_path = None
 
     def __init__(self):
         """initialize with default values"""
@@ -402,6 +420,7 @@ class Spotty(object):
             self.playback_supported = True
             xbmc.executebuiltin("SetProperty(spotify.supportsplayback, true, Home)")
         else:
+            self.playback_supported = False
             log_msg("Error while verifying spotty. Local playback is disabled.")
 
     @staticmethod
@@ -421,21 +440,28 @@ class Spotty(object):
             if os.name == 'nt':
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
             spotty = subprocess.Popen(
                     args,
                     startupinfo=startupinfo,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     bufsize=0)
+
             stdout, stderr = spotty.communicate()
+
             log_msg(stdout)
+
             if "ok spotty".encode(encoding='UTF-8') in stdout:
                 return True
-            elif xbmc.getCondVisibility("System.Platform.Windows"):
+
+            if xbmc.getCondVisibility("System.Platform.Windows"):
                 log_msg("Unable to initialize spotty binary for playback."
                         "Make sure you have the VC++ 2015 runtime installed.", xbmc.LOGERROR)
+
         except Exception as exc:
             log_exception(__name__, exc)
+
         return False
 
     def run_spotty(self, arguments=None, use_creds=False, disable_discovery=False, ap_port="54443"):
@@ -461,7 +487,7 @@ class Spotty(object):
             loggable_args = args.copy()
 
             if use_creds:
-                # Use username/password login for spotty
+                # Use username/password login for spotty.
                 addon = xbmcaddon.Addon(id=ADDON_ID)
                 username = addon.getSetting("username")
                 password = addon.getSetting("password")
@@ -503,16 +529,16 @@ class Spotty(object):
             # macos binary is x86_64 intel
             sp_binary = os.path.join(os.path.dirname(__file__), "spotty", "darwin", "spotty")
         elif xbmc.getCondVisibility("System.Platform.Linux + !System.Platform.Android"):
-            # try to find out the correct architecture by trial and error
+            # Try to find out the correct architecture by trial and error.
             import platform
             architecture = platform.machine()
-            log_msg("reported architecture: %s" % architecture)
+            log_msg(f"reported architecture: {architecture}")
             if architecture.startswith('AMD64') or architecture.startswith('x86_64'):
-                # generic linux x86_64 binary
+                # Generic linux x86_64 binary.
                 sp_binary = os.path.join(os.path.dirname(__file__), "spotty", "x86-linux",
                                          "spotty-x86_64")
             else:
-                # just try to get the correct binary path if we're unsure about the platform/cpu
+                # Just try to get the correct binary path if we're unsure about the platform/cpu.
                 paths = [
                         os.path.join(os.path.dirname(__file__), "spotty", "arm-linux", "spotty-hf"),
                         os.path.join(os.path.dirname(__file__), "spotty", "x86-linux", "spotty")
@@ -521,25 +547,31 @@ class Spotty(object):
                     if self.test_spotty(binary_path):
                         sp_binary = binary_path
                         break
+
         if sp_binary:
             st = os.stat(sp_binary)
             os.chmod(sp_binary, st.st_mode | stat.S_IEXEC)
-            log_msg("Architecture detected. Using spotty binary %s" % sp_binary)
+            log_msg(f"Architecture detected. Using spotty binary {sp_binary}.")
         else:
-            log_msg("Failed to detect architecture or platform not supported !"
+            log_msg("Failed to detect architecture or platform not supported!"
                     " Local playback will not be available.")
+
         return sp_binary
 
     @staticmethod
     def get_username():
         """ obtain/check (last) username of the credentials obtained by spotify connect"""
         username = ""
+
         cred_file = xbmcvfs.translatePath(
                 "special://profile/addon_data/%s/credentials.json" % ADDON_ID)
+
         if xbmcvfs.exists(cred_file):
             with open(cred_file) as cred_file:
                 data = cred_file.read()
                 data = eval(data)
                 username = data["username"]
+
         addon_setting("connect_username", username)
+
         return username
