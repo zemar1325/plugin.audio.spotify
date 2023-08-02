@@ -152,10 +152,6 @@ msgctxt "#11034"
 msgid "Default view for song list"
 msgstr "Standardansicht für Songliste"
 
-msgctxt "#11035"
-msgid "Play song radio"
-msgstr "Song Radio abspielen"
-
 msgctxt "#11036"
 msgid "Enable this device as Spotify Connect target (experimental)"
 msgstr "Aktiviere dieses Gerät als Spotify Connect Ziel (experimental)"

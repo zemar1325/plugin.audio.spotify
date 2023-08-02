@@ -4,7 +4,6 @@ from utils import log_msg, log_exception, ADDON_ID, PROXY_PORT, get_chunks, get_
     parse_spotify_track, KODI_VERSION
 from urllib.parse import urlparse
 import urllib
-import threading
 import time
 import spotipy
 import xbmc
@@ -60,9 +59,11 @@ class PluginContent:
             self.local_playback, self.playername, self.connect_id = \
                 self.active_playback_device()
             if self.action:
+                log_msg(f"Evaluating action '{self.action}'.")
                 action = "self." + self.action
                 eval(action)()
             else:
+                log_msg(f"Browse main and setting up precache library.")
                 self.browse_main()
                 self.precache_library()
 
@@ -100,6 +101,7 @@ class PluginContent:
         action = self.params.get("action", None)
         if action:
             self.action = action[0].lower()
+            log_msg(f"Set action to '{self.action}'.")
         playlist_id = self.params.get("playlistid", None)
         if playlist_id:
             self.playlist_id = playlist_id[0]
@@ -162,6 +164,9 @@ class PluginContent:
         """set reconnect flag for main_loop"""
         if self.addon.getSetting("playback_device") == "connect":
             self.win.setProperty("spotify-cmd", "__RECONNECT__")
+
+    def play_track_radio(self):
+        xbmcgui.Dialog().ok('Play Song Radio', "Spotify play song radio is not available yet.")
 
     def browse_main(self):
         # Main listing.
@@ -757,7 +762,7 @@ class PluginContent:
                 track["playlistid"] = playlist_details["id"]
             track["artistid"] = track['artists'][0]['id']
 
-            # use original trackid for actions when the track was relinked
+            # Use original track id for actions when the track was relinked.
             if track.get("linked_from"):
                 real_trackid = track["linked_from"]["id"]
                 real_trackuri = track["linked_from"]["uri"]
@@ -843,12 +848,12 @@ class PluginContent:
             else:
                 li = xbmcgui.ListItem(label)
             if self.local_playback and self.connect_id:
-                # local playback by using proxy on a remote machine
+                # Local playback by using proxy on a remote machine.
                 url = "http://%s:%s/track/%s/%s" \
                       % (self.connect_id, PROXY_PORT, track['id'], duration)
                 li.setProperty("isPlayable", "true")
             elif self.local_playback:
-                # local playback by using proxy on this machine
+                # Local playback by using proxy on this machine.
                 url = "http://localhost:%s/track/%s/%s" % (PROXY_PORT, track['id'], duration)
                 li.setProperty("isPlayable", "true")
             else:
@@ -897,7 +902,7 @@ class PluginContent:
         if album_ids is None:
             album_ids = []
         if not albums and album_ids:
-            # get full info in chunks of 20
+            # Get full info in chunks of 20.
             for chunk in get_chunks(album_ids, 20):
                 albums += self.sp.albums(chunk, market=self.user_country)['albums']
 
@@ -1484,126 +1489,3 @@ class PluginContent:
             self.get_saved_tracks()
             del monitor
             self.win.setProperty("Spotify.PreCachedItems", "done")
-
-
-class SpotifyRadioTrackBuffer(object):
-    FETCH_SIZE = 100
-    MIN_BUFFER_SIZE = FETCH_SIZE / 2
-    CHECK_BUFFER_PERIOD = 0.5
-
-    # Public interface
-    def __init__(self, seed_tracks):
-        self._buffer = seed_tracks[:]
-        self._buffer_lock = threading.Lock()
-        self._running = False
-
-    def start(self):
-        self._running = True
-        log_msg("Starting Spotify radio track buffer worker thread.")
-        t = threading.Thread(target=self._fill_buffer)
-        t.start()
-
-    def stop(self):
-        log_msg("Stopping Spotify radio track buffer worker thread.")
-        self._running = False
-
-    def __next__(self):
-        # For the most part, the buffer-filling thread should prevent the need for waiting here,
-        # but wait exponentially (up to about 32 seconds) for it to fill before giving up.
-        log_msg("Spotify radio track buffer asked for next item", xbmc.LOGDEBUG)
-        attempts = 0
-        while attempts <= 5:
-            self._buffer_lock.acquire()
-            if len(self._buffer) <= self.MIN_BUFFER_SIZE:
-                self._buffer_lock.release()
-                sleep_time = pow(2, attempts)
-                log_msg("Spotify radio track buffer empty, sleeping for %d seconds" % sleep_time,
-                        xbmc.LOGDEBUG)
-                time.sleep(sleep_time)
-                attempts += 1
-            else:
-                track = self._buffer.pop(0)
-                self._buffer_lock.release()
-                log_msg("Got track '%s' from Spotify radio track buffer" % track["id"],
-                        xbmc.LOGDEBUG)
-                return track
-        raise StopIteration
-
-    # Support both Python 2.7 & Python 3.0
-    next = __next__
-
-    # Implementation
-    def _fill_buffer(self):
-        while self._running:
-            self._buffer_lock.acquire()
-            if len(self._buffer) <= self.MIN_BUFFER_SIZE:
-                log_msg("Spotify radio track buffer was %d, below minimum size of %d - filling"
-                        % (len(self._buffer), self.MIN_BUFFER_SIZE), xbmc.LOGDEBUG)
-                self._buffer += self._fetch()
-                self._buffer_lock.release()
-            else:
-                self._buffer_lock.release()
-                time.sleep(self.CHECK_BUFFER_PERIOD)
-
-    def _fetch(self):
-        log_msg("Spotify radio track buffer invoking recommendations() via spotipy", xbmc.LOGDEBUG)
-        try:
-            auth_token = xbmc.getInfoLabel("Window(Home).Property(spotify-token)")
-            client = spotipy.Spotify(auth_token)
-            tracks = client.recommendations(
-                    seed_tracks=[t["id"] for t in self._buffer[0: 5]],
-                    limit=self.FETCH_SIZE)["tracks"]
-            log_msg("Spotify radio track buffer got %d results back" % len(tracks))
-            return tracks
-        except Exception:
-            log_exception("SpotifyRadioTrackBuffer",
-                          "Failed to fetch recommendations, returning empty result")
-            return []
-
-
-# TODO - Is this used??
-class SpotifyRadioPlayer(xbmc.Player):
-    def __init__(self):
-        self._parent = None
-        self._seed_tracks = None
-        self._source = None
-        self._pl = xbmc.PlayList(0)
-
-    def set_parent(self, parent):
-        self._parent = parent
-
-    def set_seed_tracks(self, seed_tracks):
-        self._seed_tracks = seed_tracks
-
-    def play(self):
-        self._pl.clear()
-        self._source = SpotifyRadioTrackBuffer(self._seed_tracks)
-        self._source.start()
-
-        xbmc.executebuiltin('XBMC.RandomOff')
-        xbmc.executebuiltin('XBMC.RepeatOff')
-
-        for _i in range(2):
-            self._add_to_playlist()
-
-        xbmc.Player.play(self, self._pl)
-
-    # TODO - IS this used?
-    def onPlayBackStarted(self):
-        self._add_to_playlist()
-        xbmc.Player.onPlayBackStarted(self)
-
-    # TODO - IS this used?
-    def onPlayBackEnded(self):
-        xbmc.Player.onPlayBackEnded(self)
-
-    # TODO - IS this used?
-    def onPlayBackStopped(self):
-        self._source.stop()
-        self._pl.clear()
-        xbmc.Player.onPlayBackStopped(self)
-
-    def _add_to_playlist(self):
-        track = next(self._source)
-        url, li = parse_spotify_track(track)
-        self._pl.add(url, li)

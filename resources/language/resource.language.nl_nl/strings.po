@@ -113,10 +113,6 @@ msgctxt "#11027"
 msgid "Refresh listing"
 msgstr "Lijst vernieuwen"
 
-msgctxt "#11035"
-msgid "Play song radio"
-msgstr "Speel nummer radio"
-
 msgctxt "#11036"
 msgid "Enable this device as Spotify Connect target (experimental)"
 msgstr "Schakel dit apparaat in als Spotify Connect doel (experimenteel)"
