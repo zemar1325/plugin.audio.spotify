@@ -16,10 +16,6 @@ msgstr ""
 "Language: en\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
 
-msgctxt "#11000"
-msgid "General"
-msgstr ""
-
 msgctxt "#11001"
 msgid "Username"
 msgstr ""
@@ -28,20 +24,8 @@ msgctxt "#11002"
 msgid "Password"
 msgstr ""
 
-msgctxt "#11003"
-msgid "No valid browser was found on your system to perform the authorization request to Spotify."
-msgstr ""
-
-msgctxt "#11004"
-msgid "This track is unavailable in your country."
-msgstr ""
-
 msgctxt "#11005"
 msgid "New releases"
-msgstr ""
-
-msgctxt "#11006"
-msgid "Saved albums"
 msgstr ""
 
 msgctxt "#11007"
@@ -92,20 +76,8 @@ msgctxt "#11018"
 msgid "All albums for artist"
 msgstr ""
 
-msgctxt "#11019"
-msgid "Login error"
-msgstr ""
-
 msgctxt "#11020"
 msgid "Default view for categories"
-msgstr ""
-
-msgctxt "#11021"
-msgid "You need a premium Spotify account to use this app"
-msgstr ""
-
-msgctxt "#11022"
-msgid "Recommendations"
 msgstr ""
 
 msgctxt "#11023"
@@ -130,10 +102,6 @@ msgstr ""
 
 msgctxt "#11028"
 msgid "Login details"
-msgstr ""
-
-msgctxt "#11029"
-msgid "Other settings"
 msgstr ""
 
 msgctxt "#11030"
@@ -164,36 +132,12 @@ msgctxt "#11039"
 msgid "Playback device"
 msgstr ""
 
-msgctxt "#11040"
-msgid "Active"
-msgstr ""
-
 msgctxt "#11047"
 msgid "Current user"
 msgstr ""
 
-msgctxt "#11048"
-msgid "Select user"
-msgstr ""
-
-msgctxt "#11049"
-msgid "The default browser should now be opened,\nfollow the directions to authorize this app on Spotify"
-msgstr ""
-
 msgctxt "#11050"
 msgid "No credentials have been set or the login failed.\nPlease enter your credentials in the addon settings."
-msgstr ""
-
-msgctxt "#11051"
-msgid "Enable audio cache"
-msgstr ""
-
-msgctxt "#11052"
-msgid "Location to store the audio cache"
-msgstr ""
-
-msgctxt "#11053"
-msgid "Audio device to use"
 msgstr ""
 
 msgctxt "#11054"
@@ -202,54 +146,6 @@ msgstr ""
 
 msgctxt "#11055"
 msgid "Views"
-msgstr ""
-
-msgctxt "#11056"
-msgid "Directly output to default soundcard"
-msgstr ""
-
-msgctxt "#11057"
-msgid "Use Kodi player as output device"
-msgstr ""
-
-msgctxt "#11058"
-msgid "Manual specify soundcard (advanced)"
-msgstr ""
-
-msgctxt "#11059"
-msgid "Changes on this page require a restart of Kodi"
-msgstr ""
-
-msgctxt "#11060"
-msgid "Local playback - using remote machine"
-msgstr ""
-
-msgctxt "#11061"
-msgid "This will allow you to enable local, direct playback from Spotify tracks in Kodi on unsupported platforms (e.g. Android) by using the remote service on another host. Make sure that you have the Spotify addon installed on another Kodi machine in your network that does support local playback. In the next dialog, please select the remote machine's hostname or ip-address."
-msgstr ""
-
-msgctxt "#11062"
-msgid "Hostname or IP"
-msgstr ""
-
-msgctxt "#11063"
-msgid "Local playback using remote host %s"
-msgstr ""
-
-msgctxt "#11064"
-msgid "Use Kodi OSD for playback on (remote) Spotify Connect device"
-msgstr ""
-
-msgctxt "#11065"
-msgid "Please connect to this device with the Spotify app on your phone to login or enter your credentials in the settings dialog."
-msgstr ""
-
-msgctxt "#11066"
-msgid "Logoff ?"
-msgstr ""
-
-msgctxt "#11067"
-msgid "Are you sure you want to logoff?"
 msgstr ""
 
 msgctxt "#11068"

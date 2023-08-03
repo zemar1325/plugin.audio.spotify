@@ -2,18 +2,17 @@
 import json
 import math
 import threading
-import os
-from io import BytesIO
+import time
+
+import xbmc
+import xbmcaddon
 
 import cherrypy
 from cherrypy._cpnative_server import CPHTTPServer
 from utils import create_wave_header, log_msg, log_exception, PROXY_PORT, ADDON_ID
-import time
-import xbmcaddon
-import xbmc
 
 LIBRESPOT_INITIAL_VOLUME = "50"
-MAX_SPOTTY_CHUNK_SIZE = 524288
+SPOTTY_AUDIO_CHUNK_SIZE = 524288
 SPOTIFY_TRACK_PREFIX = "spotify:track:"
 
 
@@ -201,7 +200,7 @@ class Root:
 
             # Loop as long as there's something to output.
             while bytes_written < length:
-                frame = self.spotty_bin.stdout.read(MAX_SPOTTY_CHUNK_SIZE)
+                frame = self.spotty_bin.stdout.read(SPOTTY_AUDIO_CHUNK_SIZE)
                 if not frame:
                     log_msg("Nothing read from stdout.", xbmc.LOGDEBUG)
                     break
@@ -221,24 +220,6 @@ class Root:
             # Make sure spotty always gets terminated.
             if self.spotty_bin is not None:
                 self.kill_spotty()
-
-    @cherrypy.expose
-    def silence(self, duration):
-        """stream silence audio for the given duration, used by spotify connect player"""
-        duration = float(duration)
-        wave_header, filesize = create_wave_header(duration)
-        output_buffer = BytesIO()
-        output_buffer.write(wave_header)
-        output_buffer.write(bytes('\0' * (filesize - output_buffer.tell()), 'utf-8'))
-        return cherrypy.lib.static.serve_fileobj(output_buffer.read(), content_type="audio/wav",
-                                                 name="%s.wav" % duration, debug=True)
-
-    @cherrypy.expose
-    def nexttrack(self):
-        """play silence while spotify connect player is waiting for the next track"""
-        log_msg('Play silence while spotify connect player is waiting for the next track',
-                xbmc.LOGDEBUG)
-        return self.silence(20)
 
     @cherrypy.expose
     def callback(self, **kwargs):

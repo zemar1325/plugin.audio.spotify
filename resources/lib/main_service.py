@@ -5,16 +5,18 @@
     plugin.audio.spotify
     Spotify Player for Kodi
     main_service.py
-    Background service which launches the spotty binary and monitors the player
+    Background service which launches the spotty binary and monitors the player.
 """
 
-from utils import log_msg, ADDON_ID, get_token, Spotty
-from httpproxy import ProxyRunner
+import time
+
 import xbmc
 import xbmcaddon
 import xbmcgui
+
 import spotipy
-import time
+from httpproxy import ProxyRunner
+from utils import log_msg, ADDON_ID, get_token, Spotty
 
 
 class MainService:
@@ -28,7 +30,7 @@ class MainService:
         self.kodimonitor = xbmc.Monitor()
         self.spotty = Spotty()
 
-        # spotipy and the webservice are always prestarted in the background.
+        # spotipy and the webservice are always pre-started in the background.
         # The auth key for spotipy will be set afterwards.
         # The webserver is also used for the authentication callbacks from spotify api.
         self.sp = spotipy.Spotify()
@@ -78,7 +80,7 @@ class MainService:
         del self.addon
         del self.kodimonitor
         del self.win
-        log_msg('Stopped', xbmc.LOGINFO)
+        log_msg('Stopped.', xbmc.LOGINFO)
 
     def switch_user(self):
         """called whenever we switch to a different user/credentials"""
@@ -91,13 +93,7 @@ class MainService:
         username = self.spotty.get_username()
         if not username:
             username = self.addon.getSetting("username")
-            if not username and self.addon.getSetting("multi_account") == "true":
-                username1 = self.addon.getSetting("username1")
-                password1 = self.addon.getSetting("password1")
-                if username1 and password1:
-                    self.addon.setSetting("username", username1)
-                    self.addon.setSetting("password", password1)
-                    username = username1
+
         return username
 
     def renew_token(self):
@@ -107,8 +103,7 @@ class MainService:
         username = self.get_username()
 
         if username:
-            # Stop connect daemon.
-            # Retrieve token.
+            # Stop the connect daemon and retrieve token.
             log_msg("Retrieving auth token....")
             auth_token = get_token(self.spotty)
 
@@ -119,8 +114,8 @@ class MainService:
             self.sp._auth = auth_token["access_token"]
             me = self.sp.me()
             self.current_user = me["id"]
-            log_msg(f"Logged in to Spotify - Username: {self.current_user}", xbmc.LOGINFO)
-            # Store auth_token and username as window prop for easy access by plugin entry.
+            log_msg(f"Logged into Spotify - Username: {self.current_user}", xbmc.LOGINFO)
+            # Store auth_token and username as a window property for easy access by plugin entry.
             self.win.setProperty("spotify-token", auth_token["access_token"])
             self.win.setProperty("spotify-username", self.current_user)
             self.win.setProperty("spotify-country", me["country"])

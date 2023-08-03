@@ -6,14 +6,14 @@ A simple library for managing the availability of ports.
 
 from __future__ import print_function, division
 
-import time
-import socket
 import argparse
-import sys
-import itertools
-import contextlib
 import collections
+import contextlib
+import itertools
 import platform
+import socket
+import sys
+import time
 
 from tempora import timing
 
