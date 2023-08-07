@@ -212,10 +212,10 @@ class Root:
 
             log_msg(f"FINISHED transfer for track {track_id}"
                     f" - range {range_l} - bytes written {bytes_written}.", xbmc.LOGDEBUG)
-        except Exception as exc:
-            log_exception(__name__, exc)
+        except Exception:
             log_msg("EXCEPTION FINISH transfer for track {track_id}"
-                    f" - range {range_l} - bytes written {bytes_written}.", xbmc.LOGDEBUG)
+                    f" - range {range_l} - bytes written {bytes_written}.", xbmc.LOGERROR)
+            log_exception("Error with track transfer")
         finally:
             # Make sure spotty always gets terminated.
             if self.spotty_bin is not None:

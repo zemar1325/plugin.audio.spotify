@@ -23,6 +23,8 @@ class MainService:
     """our main background service running the various threads"""
 
     def __init__(self):
+        log_msg(f"Spotify plugin version: {xbmcaddon.Addon(id=ADDON_ID).getAddonInfo('version')}.")
+
         self.current_user = None
         self.auth_token = None
         self.addon = xbmcaddon.Addon(id=ADDON_ID)
@@ -30,15 +32,15 @@ class MainService:
         self.kodimonitor = xbmc.Monitor()
         self.spotty = Spotty()
 
-        # spotipy and the webservice are always pre-started in the background.
-        # The auth key for spotipy will be set afterwards.
+        # Spotipy and the webservice are always pre-started in the background.
+        # The auth key for spotipy will be set afterward.
         # The webserver is also used for the authentication callbacks from spotify api.
         self.sp = spotipy.Spotify()
 
         self.proxy_runner = ProxyRunner(self.spotty)
         self.proxy_runner.start()
         webport = self.proxy_runner.get_port()
-        log_msg('started webproxy at port {0}'.format(webport))
+        log_msg('Started webproxy at port {0}.'.format(webport))
 
         # Authenticate at startup.
         self.renew_token()

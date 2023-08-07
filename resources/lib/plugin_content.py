@@ -14,7 +14,7 @@ from simplecache import SimpleCache
 
 import spotipy
 from utils import log_msg, log_exception, ADDON_ID, PROXY_PORT, get_chunks, get_track_rating, \
-    parse_spotify_track, KODI_VERSION
+    parse_spotify_track
 
 NEW_RELEASES_STR_ID = 11005
 SAVE_TRACKS_TO_MY_MUSIC_STR_ID = 11007
@@ -88,12 +88,12 @@ class PluginContent:
                 action = "self." + self.action
                 eval(action)()
             else:
-                log_msg(f"Browse main and setting up precache library.")
+                log_msg("Browse main and setting up precache library.")
                 self.browse_main()
                 self.precache_library()
 
-        except Exception as exc:
-            log_exception(__name__, exc)
+        except Exception:
+            log_exception('PluginContent init error')
             xbmcplugin.endOfDirectory(handle=self.addon_handle)
 
     def get_authkey(self):
@@ -846,10 +846,7 @@ class PluginContent:
             else:
                 title = track['name']
 
-            if KODI_VERSION > 17:
-                li = xbmcgui.ListItem(label, offscreen=True)
-            else:
-                li = xbmcgui.ListItem(label)
+            li = xbmcgui.ListItem(label, offscreen=True)
             li.setProperty("isPlayable", "true")
             li.setInfo('music', {
                     "title": title,
@@ -945,11 +942,7 @@ class PluginContent:
             else:
                 label = item['name']
 
-            if KODI_VERSION > 17:
-                li = xbmcgui.ListItem(label, path=item['url'], offscreen=True)
-            else:
-                li = xbmcgui.ListItem(label, path=item['url'])
-
+            li = xbmcgui.ListItem(label, path=item['url'], offscreen=True)
             info_labels = {
                     "title": item['name'],
                     "genre": item["genre"],
@@ -1018,10 +1011,7 @@ class PluginContent:
 
     def add_artist_listitems(self, artists):
         for item in artists:
-            if KODI_VERSION > 17:
-                li = xbmcgui.ListItem(item["name"], path=item['url'], offscreen=True)
-            else:
-                li = xbmcgui.ListItem(item["name"], path=item['url'])
+            li = xbmcgui.ListItem(item["name"], path=item['url'], offscreen=True)
             info_labels = {
                     "title": item["name"],
                     "genre": item["genre"],
@@ -1085,10 +1075,7 @@ class PluginContent:
 
     def add_playlist_listitems(self, playlists):
         for item in playlists:
-            if KODI_VERSION > 17:
-                li = xbmcgui.ListItem(item["name"], path=item['url'], offscreen=True)
-            else:
-                li = xbmcgui.ListItem(item["name"], path=item['url'])
+            li = xbmcgui.ListItem(item["name"], path=item['url'], offscreen=True)
             li.setProperty('do_not_analyze', 'true')
             li.setProperty('IsPlayable', 'false')
 

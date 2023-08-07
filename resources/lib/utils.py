@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-    plugin.audio.squeezebox
+    plugin.audio.spotify
     spotty Player for Kodi
     utils.py
     Various helper methods
@@ -15,6 +15,7 @@ import stat
 import struct
 import subprocess
 import time
+from io import BytesIO
 from threading import Thread, Event
 from traceback import format_exc
 
@@ -23,43 +24,27 @@ import xbmcaddon
 import xbmcgui
 import xbmcvfs
 
-PROXY_PORT = 52308
 DEBUG = True
-
-try:
-    import simplejson as json
-except Exception:
-    import json
-
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from io import StringIO
-
-try:
-    from cBytesIO import BytesIO
-except ImportError:
-    from io import BytesIO
+PROXY_PORT = 52308
 
 ADDON_ID = "plugin.audio.spotify"
-KODI_VERSION = int(xbmc.getInfoLabel("System.BuildVersion").split(".")[0])
 SPOTTY_SCOPE = [
-        "user-read-playback-state",
-        "user-read-currently-playing",
-        "user-modify-playback-state",
-        "playlist-read-private",
-        "playlist-read-collaborative",
-        "playlist-modify-public",
-        "playlist-modify-private",
-        "user-follow-modify",
-        "user-follow-read",
-        "user-library-read",
-        "user-library-modify",
-        "user-read-private",
-        "user-read-email",
-        "user-read-birthdate",
-        "user-top-read"]
-CLIENTID = '2eb96f9b37494be1824999d58028a305'
+    "user-read-playback-state",
+    "user-read-currently-playing",
+    "user-modify-playback-state",
+    "playlist-read-private",
+    "playlist-read-collaborative",
+    "playlist-modify-public",
+    "playlist-modify-private",
+    "user-follow-modify",
+    "user-follow-read",
+    "user-library-read",
+    "user-library-modify",
+    "user-read-private",
+    "user-read-email",
+    "user-read-birthdate",
+    "user-top-read"]
+CLIENT_ID = '2eb96f9b37494be1824999d58028a305'
 CLIENT_SECRET = '038ec3b4555f46eab1169134985b9013'
 
 try:
@@ -76,9 +61,13 @@ def log_msg(msg, loglevel=xbmc.LOGDEBUG, caller_name=None):
     if DEBUG:
         loglevel = xbmc.LOGINFO
     if not caller_name:
-        caller_name = inspect.stack()[1][3]
+        caller_name = get_formatted_caller_name(inspect.stack()[1][1], inspect.stack()[1][3])
 
     xbmc.log(f"{ADDON_ID}:{caller_name} --> {msg}", level=loglevel)
+
+
+def get_formatted_caller_name(filename, function_name):
+    return f'{os.path.splitext(os.path.basename(filename))[0]}:{function_name}'
 
 
 # def get_log_level_str(loglevel):
@@ -97,11 +86,11 @@ def log_msg(msg, loglevel=xbmc.LOGDEBUG, caller_name=None):
 #             return "none"
 
 
-def log_exception(modulename, exceptiondetails):
+def log_exception(exception_details):
     """helper to properly log an exception"""
-    the_caller_name = inspect.stack()[1][3]
-    log_msg(format_exc(), loglevel=xbmc.LOGDEBUG, caller_name=the_caller_name)
-    log_msg(f"Exception in {modulename}! --> {exceptiondetails}", loglevel=xbmc.LOGWARNING,
+    the_caller_name = get_formatted_caller_name(inspect.stack()[1][1], inspect.stack()[1][3])
+    log_msg(format_exc(), loglevel=xbmc.LOGERROR, caller_name=the_caller_name)
+    log_msg(f"Exception --> {exception_details}.", loglevel=xbmc.LOGERROR,
             caller_name=the_caller_name)
 
 
@@ -131,8 +120,8 @@ def get_token(spotty):
                 spotty.get_username()
             if not token_info:
                 token_info = request_token_spotty(spotty, use_creds=True)
-    except Exception as exc:
-        log_exception("utils.get_token", exc)
+    except Exception:
+        log_exception("Spotify get token error")
         token_info = None
 
     if not token_info:
@@ -151,7 +140,7 @@ def request_token_spotty(spotty, use_creds=True):
     token_info = None
 
     try:
-        args = ["-t", "--client-id", CLIENTID, "--scope", ",".join(SPOTTY_SCOPE), "-n",
+        args = ["-t", "--client-id", CLIENT_ID, "--scope", ",".join(SPOTTY_SCOPE), "-n",
                 "temp-spotty"]
         spotty = spotty.run_spotty(arguments=args, use_creds=use_creds)
 
@@ -177,8 +166,8 @@ def request_token_spotty(spotty, use_creds=True):
                           'expires_at': int(time.time()) + result['expiresIn'],
                           'refresh_token': result['accessToken']
                           }
-    except Exception as exc:
-        log_exception(__name__, exc)
+    except Exception:
+        log_exception('Spotify request token error')
 
     return token_info
 
@@ -194,42 +183,42 @@ def create_wave_header(duration):
     # Generate format chunk.
     format_chunk_spec = "<4sLHHLLHH"
     format_chunk = struct.pack(
-            format_chunk_spec,
-            "fmt ".encode(encoding='UTF-8'),  # Chunk id
-            16,  # Size of this chunk (excluding chunk id and this field)
-            1,  # Audio format, 1 for PCM
-            channels,  # Number of channels
-            sample_rate,  # Samplerate, 44100, 48000, etc.
-            sample_rate * channels * (bits_per_sample // 8),  # Byterate
-            channels * (bits_per_sample // 8),  # Blockalign
-            bits_per_sample,  # 16 bits for two byte samples, etc.  => A METTRE A JOUR - POUR TEST
+        format_chunk_spec,
+        "fmt ".encode(encoding='UTF-8'),  # Chunk id
+        16,  # Size of this chunk (excluding chunk id and this field)
+        1,  # Audio format, 1 for PCM
+        channels,  # Number of channels
+        sample_rate,  # Samplerate, 44100, 48000, etc.
+        sample_rate * channels * (bits_per_sample // 8),  # Byterate
+        channels * (bits_per_sample // 8),  # Blockalign
+        bits_per_sample,  # 16 bits for two byte samples, etc.  => A METTRE A JOUR - POUR TEST
     )
 
     # Generate data chunk.
     data_chunk_spec = "<4sL"
     data_size = num_samples * channels * (bits_per_sample / 8)
     data_chunk = struct.pack(
-            data_chunk_spec,
-            "data".encode(encoding='UTF-8'),  # Chunk id
-            int(data_size),  # Chunk size (excluding chunk id and this field)
+        data_chunk_spec,
+        "data".encode(encoding='UTF-8'),  # Chunk id
+        int(data_size),  # Chunk size (excluding chunk id and this field)
     )
     sum_items = [
-            # "WAVE" string following size field
-            4,
-            # "fmt " + chunk size field + chunk size
-            struct.calcsize(format_chunk_spec),
-            # Size of data chunk spec + data size
-            struct.calcsize(data_chunk_spec) + data_size
+        # "WAVE" string following size field
+        4,
+        # "fmt " + chunk size field + chunk size
+        struct.calcsize(format_chunk_spec),
+        # Size of data chunk spec + data size
+        struct.calcsize(data_chunk_spec) + data_size
     ]
 
     # Generate main header.
     all_chunks_size = int(sum(sum_items))
     main_header_spec = "<4sL4s"
     main_header = struct.pack(
-            main_header_spec,
-            "RIFF".encode(encoding='UTF-8'),
-            all_chunks_size,
-            "WAVE".encode(encoding='UTF-8')
+        main_header_spec,
+        "RIFF".encode(encoding='UTF-8'),
+        all_chunks_size,
+        "WAVE".encode(encoding='UTF-8')
     )
 
     # Write all the contents in.
@@ -245,17 +234,17 @@ def process_method_on_list(method_to_run, items):
        with pooling if the system supports it"""
     all_items = []
 
-    if SUPPORTS_POOL:
+    if not SUPPORTS_POOL:
+        all_items = [method_to_run(item) for item in items]
+    else:
         pool = ThreadPool()
         try:
             all_items = pool.map(method_to_run, items)
         except Exception:
             # Catch exception to prevent threadpool running forever.
-            log_exception("utils.process_method_on_list", f"Error in {method_to_run}.")
+            log_exception(f"Error in '{method_to_run}'")
         pool.close()
         pool.join()
-    else:
-        all_items = [method_to_run(item) for item in items]
 
     all_items = [f for f in all_items if f]
 
@@ -284,19 +273,16 @@ def parse_spotify_track(track, is_album_track=True):
     url = "http://localhost:%s/track/%s/%s" % (PROXY_PORT, track['id'], duration)
 
     info_labels = {
-            "title": track['name'],
-            "genre": " / ".join(track["album"].get("genres", [])),
-            "year": int(track["album"].get("release_date", "0").split("-")[0]),
-            "album": track['album']["name"],
-            "artist": " / ".join([artist["name"] for artist in track["artists"]]),
-            "rating": str(get_track_rating(track["popularity"])),
-            "duration": duration
+        "title": track['name'],
+        "genre": " / ".join(track["album"].get("genres", [])),
+        "year": int(track["album"].get("release_date", "0").split("-")[0]),
+        "album": track['album']["name"],
+        "artist": " / ".join([artist["name"] for artist in track["artists"]]),
+        "rating": str(get_track_rating(track["popularity"])),
+        "duration": duration
     }
 
-    if KODI_VERSION > 17:
-        li = xbmcgui.ListItem(track['name'], path=url, offscreen=True)
-    else:
-        li = xbmcgui.ListItem(track['name'], path=url)
+    li = xbmcgui.ListItem(track['name'], path=url, offscreen=True)
     if is_album_track:
         info_labels["tracknumber"] = track["track_number"]
         info_labels["discnumber"] = track["disc_number"]
@@ -385,11 +371,11 @@ class Spotty(object):
             st = os.stat(binary_path)
             os.chmod(binary_path, st.st_mode | stat.S_IEXEC)
             args = [
-                    binary_path,
-                    "-n", "selftest",
-                    "--disable-discovery",
-                    "-x",
-                    "-v"
+                binary_path,
+                "-n", "selftest",
+                "--disable-discovery",
+                "-x",
+                "-v"
             ]
             startupinfo = None
             if os.name == 'nt':
@@ -397,11 +383,11 @@ class Spotty(object):
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
             spotty = subprocess.Popen(
-                    args,
-                    startupinfo=startupinfo,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    bufsize=0)
+                args,
+                startupinfo=startupinfo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=0)
 
             stdout, stderr = spotty.communicate()
 
@@ -414,8 +400,8 @@ class Spotty(object):
                 log_msg("Unable to initialize spotty binary for playback."
                         "Make sure you have the VC++ 2015 runtime installed.", xbmc.LOGERROR)
 
-        except Exception as exc:
-            log_exception(__name__, exc)
+        except Exception:
+            log_exception("Test spotty binary error")
 
         return False
 
@@ -424,12 +410,12 @@ class Spotty(object):
         try:
             # os.environ["RUST_LOG"] = "debug"
             args = [
-                    self.__spotty_binary,
-                    "-c", self.__cache_path,
-                    "-b", "320",
-                    "-v",
-                    "--enable-audio-cache",
-                    "--ap-port", ap_port
+                self.__spotty_binary,
+                "-c", self.__cache_path,
+                "-b", "320",
+                "-v",
+                "--enable-audio-cache",
+                "--ap-port", ap_port
             ]
 
             if arguments:
@@ -458,8 +444,8 @@ class Spotty(object):
 
             return subprocess.Popen(args, startupinfo=startupinfo, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT)
-        except Exception as exc:
-            log_exception(__name__, exc)
+        except Exception:
+            log_exception("Run spotty error")
 
         return None
 
@@ -480,35 +466,35 @@ class Spotty(object):
         if xbmc.getCondVisibility("System.Platform.Windows"):
             sp_binary = os.path.join(os.path.dirname(__file__), "spotty", "windows", "spotty.exe")
         elif xbmc.getCondVisibility("System.Platform.OSX"):
-            # Macos binary is x86_64 intel.???
-            sp_binary = os.path.join(os.path.dirname(__file__), "spotty", "darwin", "spotty")
+            sp_binary = os.path.join(os.path.dirname(__file__), "spotty", "macos", "spotty")
         elif xbmc.getCondVisibility("System.Platform.Linux + !System.Platform.Android"):
-            # Try to find out the correct architecture by trial and error.
+            # Try to find the correct architecture by trial and error.
             import platform
             architecture = platform.machine()
-            log_msg(f"reported architecture: {architecture}")
+            log_msg(f"Reported architecture: '{architecture}'.")
             if architecture.startswith('AMD64') or architecture.startswith('x86_64'):
                 # Generic linux x86_64 binary.
                 sp_binary = os.path.join(os.path.dirname(__file__), "spotty", "x86-linux",
                                          "spotty-x86_64")
             else:
-                # Just try to get the correct binary path if we're unsure about the platform/cpu.
+                # When we're unsure about the platform/cpu, try by testing to get the correct binary path.
                 paths = [
-                        os.path.join(os.path.dirname(__file__), "spotty", "arm-linux", "spotty-hf"),
-                        os.path.join(os.path.dirname(__file__), "spotty", "x86-linux", "spotty")
+                    os.path.join(os.path.dirname(__file__), "spotty", "arm-linux", "spotty-hf"),
+                    os.path.join(os.path.dirname(__file__), "spotty", "x86-linux", "spotty")
                 ]
                 for binary_path in paths:
                     if self.test_spotty(binary_path):
                         sp_binary = binary_path
                         break
 
-        if sp_binary:
-            st = os.stat(sp_binary)
-            os.chmod(sp_binary, st.st_mode | stat.S_IEXEC)
-            log_msg(f"Architecture detected. Using spotty binary {sp_binary}.")
-        else:
-            log_msg("Failed to detect architecture or platform not supported!"
-                    " Local playback will not be available.")
+        if not sp_binary:
+            log_msg("Spotty: failed to detect architecture or platform not supported!"
+                    " Local playback will not be available.", loglevel=xbmc.LOGERROR)
+            return None
+
+        st = os.stat(sp_binary)
+        os.chmod(sp_binary, st.st_mode | stat.S_IEXEC)
+        log_msg(f"Spotty architecture detected. Using spotty binary '{sp_binary}'.")
 
         return sp_binary
 
@@ -518,7 +504,7 @@ class Spotty(object):
         username = ""
 
         cred_file = xbmcvfs.translatePath(
-                "special://profile/addon_data/%s/credentials.json" % ADDON_ID)
+            "special://profile/addon_data/%s/credentials.json" % ADDON_ID)
 
         if xbmcvfs.exists(cred_file):
             with open(cred_file) as cred_file:
