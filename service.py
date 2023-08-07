@@ -3,7 +3,7 @@
 
 """
     plugin.audio.spotify
-    Spotify Player for Kodi
+    Spotify player for Kodi
     Main service entry point
 """
 

@@ -3,7 +3,7 @@
     <category label="11028">
         <setting id="username" type="text" label="11001" default=""/>
         <setting id="password" type="text" option="hidden" label="11002" default=""/>
-	</category>
+    </category>
 
     <category label="11054">
         <setting id="initial_volume" type="number" label="11068" help="" default="-1">

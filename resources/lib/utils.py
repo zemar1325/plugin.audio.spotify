@@ -3,7 +3,7 @@
 
 """
     plugin.audio.spotify
-    spotty Player for Kodi
+    Spotify player for Kodi
     utils.py
     Various helper methods
 """
@@ -480,7 +480,9 @@ class Spotty(object):
         """find the correct spotty binary belonging to the platform"""
         sp_binary = None
         if xbmc.getCondVisibility("System.Platform.Windows"):
-            sp_binary = os.path.join(os.path.dirname(__file__), "deps/spotty", "windows", "spotty.exe")
+            sp_binary = os.path.join(
+                os.path.dirname(__file__), "deps/spotty", "windows", "spotty.exe"
+            )
         elif xbmc.getCondVisibility("System.Platform.OSX"):
             sp_binary = os.path.join(os.path.dirname(__file__), "deps/spotty", "macos", "spotty")
         elif xbmc.getCondVisibility("System.Platform.Linux + !System.Platform.Android"):
@@ -497,7 +499,9 @@ class Spotty(object):
             else:
                 # When we're unsure about the platform/cpu, try by testing to get the correct binary path.
                 paths = [
-                    os.path.join(os.path.dirname(__file__), "deps/spotty", "arm-linux", "spotty-hf"),
+                    os.path.join(
+                        os.path.dirname(__file__), "deps/spotty", "arm-linux", "spotty-hf"
+                    ),
                     os.path.join(os.path.dirname(__file__), "deps/spotty", "x86-linux", "spotty"),
                 ]
                 for binary_path in paths:

@@ -854,7 +854,7 @@ class PluginContent:
                 (
                     xbmc.getLocalizedString(526),
                     "RunPlugin(plugin://plugin.audio.spotify/"
-                    f"?action=add_track_to_playlist&trackid={real_trackuri})"
+                    f"?action=add_track_to_playlist&trackid={real_trackuri})",
                 )
             )
 
@@ -1095,9 +1095,7 @@ class PluginContent:
                     f"?action=connect_playback&artistid={item['id']})",
                 )
             )
-            contextitems.append(
-                (xbmc.getLocalizedString(132), f"Container.Update({item['url']})")
-            )
+            contextitems.append((xbmc.getLocalizedString(132), f"Container.Update({item['url']})"))
             contextitems.append(
                 (
                     self.addon.getLocalizedString(ARTIST_TOP_TRACKS_STR_ID),
@@ -1202,8 +1200,7 @@ class PluginContent:
             contextitems.append(
                 (
                     self.addon.getLocalizedString(REFRESH_LISTING_STR_ID),
-                    "RunPlugin(plugin://plugin.audio.spotify/"
-                    "?action=refresh_listing)",
+                    "RunPlugin(plugin://plugin.audio.spotify/?action=refresh_listing)",
                 )
             )
             item["contextitems"] = contextitems

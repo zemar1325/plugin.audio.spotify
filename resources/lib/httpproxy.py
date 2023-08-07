@@ -4,15 +4,15 @@ import math
 import threading
 import time
 
-import xbmc
-import xbmcaddon
-
-# Would like to do the following submodule imports, but they won't work. 
+# Would like to do the following submodule imports, but they won't work.
 # See the comment in 'lib/__init__.py':
 # from deps import cherrypy
 # from deps.cherrypy._cpnative_server import CPHTTPServer
 import cherrypy
+import xbmc
+import xbmcaddon
 from cherrypy._cpnative_server import CPHTTPServer
+
 from utils import create_wave_header, log_msg, log_exception, PROXY_PORT, ADDON_ID
 
 LIBRESPOT_INITIAL_VOLUME = "50"

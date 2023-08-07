@@ -3,7 +3,7 @@
 
 """
     plugin.audio.spotify
-    Spotify Player for Kodi
+    Spotify player for Kodi
     main_service.py
     Background service which launches the spotty binary and monitors the player.
 """
