@@ -20,15 +20,15 @@ from tempora import timing
 
 def client_host(server_host):
     """Return the host on which a client can connect to the given listener."""
-    if server_host == '0.0.0.0':
+    if server_host == "0.0.0.0":
         # 0.0.0.0 is INADDR_ANY, which should answer on localhost.
-        return '127.0.0.1'
+        return "127.0.0.1"
 
-    if server_host in ('::', '::0', '::0.0.0.0'):
-        # :: is IN6ADDR_ANY, which should answer on localhost.
-        # ::0 and ::0.0.0.0 are non-canonical but common
+    if server_host in ("::", "::0", "::0.0.0.0"):
+        # "::" is IN6ADDR_ANY, which should answer on localhost.
+        # "::0" and "::0.0.0.0" are non-canonical but common
         # ways to write IN6ADDR_ANY.
-        return '::1'
+        return "::1"
 
     return server_host
 
@@ -61,10 +61,13 @@ class Checker(object):
         """
         if port is None and isinstance(host, collections.Sequence):
             host, port = host[:2]
-        if platform.system() == 'Windows':
+        if platform.system() == "Windows":
             host = client_host(host)
         info = socket.getaddrinfo(
-                host, port, socket.AF_UNSPEC, socket.SOCK_STREAM,
+            host,
+            port,
+            socket.AF_UNSPEC,
+            socket.SOCK_STREAM,
         )
         list(itertools.starmap(self._connect, info))
 
@@ -93,7 +96,7 @@ class PortNotFree(IOError):
     pass
 
 
-def free(host, port, timeout=float('Inf')):
+def free(host, port, timeout=float("Inf")):
     """
     Wait for the specified port to become free (dropping or rejecting
     requests). Return when the port is free or raise a Timeout if timeout
@@ -124,7 +127,7 @@ def free(host, port, timeout=float('Inf')):
 wait_for_free_port = free
 
 
-def occupied(host, port, timeout=float('Inf')):
+def occupied(host, port, timeout=float("Inf")):
     """
     Wait for the specified port to become occupied (accepting requests).
     Return when the port is occupied or raise a Timeout if timeout has
@@ -145,7 +148,7 @@ def occupied(host, port, timeout=float('Inf')):
 
     while not timer.expired():
         try:
-            Checker(timeout=.5).assert_free(host, port)
+            Checker(timeout=0.5).assert_free(host, port)
             # Politely wait
             time.sleep(0.1)
         except PortNotFree:
@@ -166,7 +169,7 @@ def find_available_local_port():
     True
     """
     sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-    addr = '', 0
+    addr = "", 0
     sock.bind(addr)
     addr, port = sock.getsockname()[:2]
     sock.close()
@@ -192,12 +195,12 @@ class HostPort(str):
 
     @property
     def host(self):
-        host, sep, port = self.partition(':')
+        host, sep, port = self.partition(":")
         return host
 
     @property
     def port(self):
-        host, sep, port = self.partition(':')
+        host, sep, port = self.partition(":")
         return int(port)
 
 
@@ -207,9 +210,9 @@ def _main():
     def global_lookup(key):
         return globals()[key]
 
-    parser.add_argument('target', metavar='host:port', type=HostPort)
-    parser.add_argument('func', metavar='state', type=global_lookup)
-    parser.add_argument('-t', '--timeout', default=None, type=float)
+    parser.add_argument("target", metavar="host:port", type=HostPort)
+    parser.add_argument("func", metavar="state", type=global_lookup)
+    parser.add_argument("-t", "--timeout", default=None, type=float)
 
     args = parser.parse_args()
     try:
@@ -219,5 +222,5 @@ def _main():
         raise SystemExit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     _main()

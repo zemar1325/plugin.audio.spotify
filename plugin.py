@@ -1,10 +1,10 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-'''
+"""
     plugin.audio.spotify
     Unofficial Spotify client for Kodi
-'''
+"""
 
 import os
 import sys

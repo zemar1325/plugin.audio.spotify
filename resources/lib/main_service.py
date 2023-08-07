@@ -40,7 +40,7 @@ class MainService:
         self.proxy_runner = ProxyRunner(self.spotty)
         self.proxy_runner.start()
         webport = self.proxy_runner.get_port()
-        log_msg('Started webproxy at port {0}.'.format(webport))
+        log_msg("Started webproxy at port {0}.".format(webport))
 
         # Authenticate at startup.
         self.renew_token()
@@ -65,7 +65,7 @@ class MainService:
                 log_msg("retrieving token...")
                 if self.renew_token():
                     xbmc.executebuiltin("Container.Refresh")
-            elif self.auth_token and (self.auth_token['expires_at'] - 60) <= (int(time.time())):
+            elif self.auth_token and (self.auth_token["expires_at"] - 60) <= (int(time.time())):
                 log_msg("Token needs to be refreshed.")
                 self.renew_token()
             else:
@@ -76,13 +76,13 @@ class MainService:
 
     def close(self):
         """shutdown, perform cleanup"""
-        log_msg('Shutdown requested!', xbmc.LOGINFO)
+        log_msg("Shutdown requested!", xbmc.LOGINFO)
         self.spotty.kill_spotty()
         self.proxy_runner.stop()
         del self.addon
         del self.kodimonitor
         del self.win
-        log_msg('Stopped.', xbmc.LOGINFO)
+        log_msg("Stopped.", xbmc.LOGINFO)
 
     def switch_user(self):
         """called whenever we switch to a different user/credentials"""
@@ -91,7 +91,7 @@ class MainService:
             xbmc.executebuiltin("Container.Refresh")
 
     def get_username(self):
-        """ get the current configured/setup username"""
+        """get the current configured/setup username"""
         username = self.spotty.get_username()
         if not username:
             username = self.addon.getSetting("username")
