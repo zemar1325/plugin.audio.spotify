@@ -14,7 +14,7 @@ import xbmc
 import xbmcaddon
 import xbmcgui
 
-import spotipy
+from deps import spotipy
 from httpproxy import ProxyRunner
 from utils import log_msg, ADDON_ID, get_token, Spotty
 

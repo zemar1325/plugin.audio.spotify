@@ -480,9 +480,9 @@ class Spotty(object):
         """find the correct spotty binary belonging to the platform"""
         sp_binary = None
         if xbmc.getCondVisibility("System.Platform.Windows"):
-            sp_binary = os.path.join(os.path.dirname(__file__), "spotty", "windows", "spotty.exe")
+            sp_binary = os.path.join(os.path.dirname(__file__), "deps/spotty", "windows", "spotty.exe")
         elif xbmc.getCondVisibility("System.Platform.OSX"):
-            sp_binary = os.path.join(os.path.dirname(__file__), "spotty", "macos", "spotty")
+            sp_binary = os.path.join(os.path.dirname(__file__), "deps/spotty", "macos", "spotty")
         elif xbmc.getCondVisibility("System.Platform.Linux + !System.Platform.Android"):
             # Try to find the correct architecture by trial and error.
             import platform
@@ -492,13 +492,13 @@ class Spotty(object):
             if architecture.startswith("AMD64") or architecture.startswith("x86_64"):
                 # Generic linux x86_64 binary.
                 sp_binary = os.path.join(
-                    os.path.dirname(__file__), "spotty", "x86-linux", "spotty-x86_64"
+                    os.path.dirname(__file__), "deps/spotty", "x86-linux", "spotty-x86_64"
                 )
             else:
                 # When we're unsure about the platform/cpu, try by testing to get the correct binary path.
                 paths = [
-                    os.path.join(os.path.dirname(__file__), "spotty", "arm-linux", "spotty-hf"),
-                    os.path.join(os.path.dirname(__file__), "spotty", "x86-linux", "spotty"),
+                    os.path.join(os.path.dirname(__file__), "deps/spotty", "arm-linux", "spotty-hf"),
+                    os.path.join(os.path.dirname(__file__), "deps/spotty", "x86-linux", "spotty"),
                 ]
                 for binary_path in paths:
                     if self.test_spotty(binary_path):

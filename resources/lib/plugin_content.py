@@ -12,7 +12,7 @@ import xbmcgui
 import xbmcplugin
 from simplecache import SimpleCache
 
-import spotipy
+from deps import spotipy
 from utils import (
     ADDON_ID,
     PROXY_PORT,

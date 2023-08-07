@@ -7,6 +7,10 @@ import time
 import xbmc
 import xbmcaddon
 
+# Would like to do the following submodule imports, but they won't work. 
+# See the comment in 'lib/__init__.py':
+# from deps import cherrypy
+# from deps.cherrypy._cpnative_server import CPHTTPServer
 import cherrypy
 from cherrypy._cpnative_server import CPHTTPServer
 from utils import create_wave_header, log_msg, log_exception, PROXY_PORT, ADDON_ID
@@ -281,6 +285,9 @@ class ProxyRunner(threading.Thread):
             {"server.socket_host": "127.0.0.1", "server.socket_port": PROXY_PORT}
         )
         self.__server = cherrypy.server.httpserver = CPHTTPServer(cherrypy.server)
+        log_msg(f"Set cherrypy host, port to '{self.get_host()}:{self.get_port()}'.")
+        if self.get_port() != PROXY_PORT:
+            raise Exception(f"Wrong cherrypy port set: {self.get_port()} instead of {PROXY_PORT}.")
         threading.Thread.__init__(self)
 
     def run(self):

@@ -15,7 +15,7 @@ import socket
 import sys
 import time
 
-from jaraco.tempora import timing
+from deps.jaraco.tempora import timing
 
 
 def client_host(server_host):
