@@ -525,7 +525,7 @@ class Spotty(object):
         username = ""
 
         cred_file = xbmcvfs.translatePath(
-            "special://profile/addon_data/%s/credentials.json" % ADDON_ID
+            f"special://profile/addon_data/{ADDON_ID}/credentials.json"
         )
 
         if xbmcvfs.exists(cred_file):

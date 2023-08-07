@@ -249,12 +249,12 @@ class Root:
     def callback(self, **kwargs):
         cherrypy.response.headers["Content-Type"] = "text/html"
         code = kwargs.get("code")
-        url = "http://localhost:%s/callback?code=%s" % (PROXY_PORT, code)
+        url = f"http://localhost:{PROXY_PORT}/callback?code={code}"
         if cherrypy.request.method.upper() in ["GET", "POST"]:
             html = "<html><body><h1>Authentication succesful</h1>"
             html += "<p>You can now close this browser window.</p>"
             html += "</body></html>"
-            xbmc.executebuiltin("SetProperty(spotify-token-info,%s,Home)" % url)
+            xbmc.executebuiltin(f"SetProperty(spotify-token-info,{url},Home)")
             log_msg("authkey sent")
             return html
 

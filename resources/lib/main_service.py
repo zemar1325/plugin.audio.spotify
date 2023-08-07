@@ -40,7 +40,7 @@ class MainService:
         self.proxy_runner = ProxyRunner(self.spotty)
         self.proxy_runner.start()
         webport = self.proxy_runner.get_port()
-        log_msg("Started webproxy at port {0}.".format(webport))
+        log_msg(f"Started webproxy at port {webport}.")
 
         # Authenticate at startup.
         self.renew_token()
