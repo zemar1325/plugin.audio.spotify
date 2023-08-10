@@ -8,6 +8,12 @@
 """
 
 if __name__ == "__main__":
+    import sys
+    from resources.lib.utils import log_msg
+
+    log_msg(f"Python version: {sys.version}.")
+    log_msg(f"Python exe: {sys.executable}.")
+
     from resources.lib.main_service import MainService
 
     MainService()
