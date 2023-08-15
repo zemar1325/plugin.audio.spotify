@@ -12,6 +12,7 @@ import xbmcgui
 import xbmcplugin
 from simplecache import SimpleCache
 
+import utils
 from deps import spotipy
 from utils import (
     ADDON_ID,
@@ -47,6 +48,32 @@ CURRENT_USER_STR_ID = 11047
 NO_CREDENTIALS_MSG_STR_ID = 11050
 
 
+class MyPlayer(xbmc.Player):
+    def onPlayBackStarted(self) -> None:
+        log_msg("onPlayBackStarted called.")
+
+    def onAVStarted(self) -> None:
+        log_msg("onAVStarted called.")
+
+    def onAVChange(self) -> None:
+        log_msg("onAVChange called.")
+
+    def onPlayBackEnded(self) -> None:
+        log_msg("onPlayBackEnded called.")
+
+    def onPlayBackStopped(self) -> None:
+        log_msg("onPlayBackStopped called.")
+
+    def onPlayBackError(self) -> None:
+        log_msg("onPlayBackError called.")
+
+    def onPlayBackPaused(self) -> None:
+        log_msg("onPlayBackPaused called.")
+
+    def onPlayBackResumed(self) -> None:
+        log_msg("onPlayBackResumed called.")
+
+
 class PluginContent:
     action = ""
     sp = None
@@ -71,7 +98,7 @@ class PluginContent:
     def __init__(self):
         try:
             self.addon = xbmcaddon.Addon(id=ADDON_ID)
-            self.win = xbmcgui.Window(10000)
+            self.win = xbmcgui.Window(utils.ADDON_WINDOW_ID)
             self.cache = SimpleCache()
 
             auth_token = self.get_authkey()
@@ -87,8 +114,8 @@ class PluginContent:
             self.default_view_category = self.addon.getSetting("categoryDefaultView")
             self.parse_params()
             self.sp = spotipy.Spotify(auth=auth_token)
-            self.userid = self.win.getProperty("spotify-username")
-            self.user_country = self.win.getProperty("spotify-country")
+            self.userid = self.sp.me()["id"]
+            self.user_country = self.sp.me()["country"]
             self.playername = self.active_playback_device()
             if self.action:
                 log_msg(f"Evaluating action '{self.action}'.")
@@ -99,20 +126,13 @@ class PluginContent:
                 self.browse_main()
                 self.precache_library()
 
-        except Exception:
-            log_exception("PluginContent init error")
+        except Exception as exc:
+            log_exception(exc, "PluginContent init error")
             xbmcplugin.endOfDirectory(handle=self.addon_handle)
 
     def get_authkey(self):
         """get authentication key"""
-        auth_token = None
-
-        count = 10
-        while not auth_token and count:
-            auth_token = self.win.getProperty("spotify-token")
-            count -= 1
-            if not auth_token:
-                xbmc.sleep(500)
+        auth_token = utils.get_cached_auth_token()
 
         if not auth_token:
             if self.win.getProperty("spotify.supportsplayback"):
@@ -126,6 +146,7 @@ class PluginContent:
 
     def parse_params(self):
         """parse parameters from the plugin entry path"""
+        log_msg(f"sys.argv = {str(sys.argv)}")
         self.params = urllib.parse.parse_qs(sys.argv[2][1:])
         action = self.params.get("action", None)
         if action:
@@ -165,7 +186,10 @@ class PluginContent:
             saved_albums = self.get_savedalbumsids()
             followed_artists = self.get_followedartists()
             generic_checksum = self.addon.getSetting("cache_checksum")
-            result = f"{len(saved_tracks)}-{len(saved_albums)}-{len(followed_artists)}-{generic_checksum}"
+            result = (
+                f"{len(saved_tracks)}-{len(saved_albums)}-{len(followed_artists)}"
+                f"-{generic_checksum}"
+            )
             self._cache_checksum = result
 
         if opt_value:
@@ -187,15 +211,6 @@ class PluginContent:
     def refresh_listing(self):
         self.addon.setSetting("cache_checksum", time.strftime("%Y%m%d%H%M%S", time.gmtime()))
         xbmc.executebuiltin("Container.Refresh")
-
-    def refresh_connected_device(self):
-        """set reconnect flag for main_loop"""
-        if self.addon.getSetting("playback_device") == "connect":
-            self.win.setProperty("spotify-cmd", "__RECONNECT__")
-
-    @staticmethod
-    def play_track_radio():
-        xbmcgui.Dialog().ok("Play Song Radio", "Spotify play song radio is not available yet.")
 
     def browse_main(self):
         # Main listing.
@@ -249,8 +264,6 @@ class PluginContent:
 
         xbmcplugin.addSortMethod(self.addon_handle, xbmcplugin.SORT_METHOD_UNSORTED)
         xbmcplugin.endOfDirectory(handle=self.addon_handle)
-
-        self.refresh_connected_device()
 
     def active_playback_device(self):
         device_name = self.addon.getLocalizedString(LOCAL_PLAYBACK_STR_ID)
@@ -377,7 +390,8 @@ class PluginContent:
             items.append(
                 (
                     item["name"],
-                    f"plugin://plugin.audio.spotify/?action=browse_category&applyfilter={item['id']}",
+                    f"plugin://plugin.audio.spotify/"
+                    f"?action=browse_category&applyfilter={item['id']}",
                     thumb,
                 )
             )
@@ -536,22 +550,41 @@ class PluginContent:
         if self.default_view_songs:
             xbmc.executebuiltin(f"Container.SetViewMode({self.default_view_songs})")
 
+    def play_track(self):
+        """play track"""
+        track = self.sp.track(self.track_id)
+        log_msg(f"Play track '{track['name']} ({self.track_id})'.")
+        url, li = parse_spotify_track(track)
+
+        kodi_player = MyPlayer()
+        kodi_player.play(url, li)
+
+        while not kodi_player.isPlaying():
+            time.sleep(0.1)
+        log_msg("Starting wait loop.")
+        while kodi_player.isPlaying():
+            time.sleep(0.5)
+        log_msg("Finished wait loop.")
+
     def play_playlist(self):
         """play entire playlist"""
         playlist_details = self.get_playlist_details(self.playlist_id)
-        kodi_playlist = xbmc.PlayList(0)
-        kodi_playlist.clear()
-        kodi_player = xbmc.Player()
+        log_msg(f"Play playlist '{playlist_details['name']}'.")
 
-        # Add first track and start playing.
-        url, li = parse_spotify_track(playlist_details["tracks"]["items"][0])
-        kodi_playlist.add(url, li)
-        kodi_player.play(kodi_playlist)
-
-        # Add remaining tracks to the playlist while already playing.
-        for track in playlist_details["tracks"]["items"][1:]:
+        # Add tracks to the playlist then start playing.
+        kodi_player = MyPlayer()
+        track_num = 1
+        for track in playlist_details["tracks"]["items"]:
+            log_msg(f"Playing track {track_num}.")
             url, li = parse_spotify_track(track)
-            kodi_playlist.add(url, li)
+            kodi_player.play(url, li)
+            while not kodi_player.isPlaying():
+                time.sleep(0.1)
+            track_num += 1
+            log_msg("Starting wait loop.")
+            while kodi_player.isPlaying():
+                time.sleep(0.5)
+            log_msg("Finished wait loop.")
 
     def get_category(self, categoryid):
         category = self.sp.category(categoryid, country=self.user_country, locale=self.user_country)
@@ -592,13 +625,7 @@ class PluginContent:
         if not self.track_id and xbmc.getInfoLabel("MusicPlayer.(1).Property(spotifytrackid)"):
             self.track_id = xbmc.getInfoLabel("MusicPlayer.(1).Property(spotifytrackid)")
 
-        playlists = self.sp.user_playlists(self.userid, limit=50, offset=0)
-        own_playlists = []
-        own_playlist_names = []
-        for playlist in playlists["items"]:
-            if playlist["owner"]["id"] == self.userid:
-                own_playlists.append(playlist)
-                own_playlist_names.append(playlist["name"])
+        own_playlists, own_playlist_names = utils.get_user_playlists(self.sp, 50)
         own_playlist_names.append(xbmc.getLocalizedString(525))
 
         xbmc.executebuiltin("Dialog.Close(busydialog)")
@@ -829,26 +856,37 @@ class PluginContent:
                 contextitems.append(
                     (
                         self.addon.getLocalizedString(REMOVE_TRACKS_FROM_MY_MUSIC_STR_ID),
-                        f"RunPlugin(plugin://plugin.audio.spotify/?action=remove_track&trackid={real_trackid})",
+                        f"RunPlugin(plugin://plugin.audio.spotify/"
+                        f"?action=remove_track&trackid={real_trackid})",
                     )
                 )
             else:
                 contextitems.append(
                     (
                         self.addon.getLocalizedString(SAVE_TRACKS_TO_MY_MUSIC_STR_ID),
-                        f"RunPlugin(plugin://plugin.audio.spotify/?action=save_track&trackid={real_trackid})",
+                        f"RunPlugin(plugin://plugin.audio.spotify/"
+                        f"?action=save_track&trackid={real_trackid})",
                     )
                 )
 
             if playlist_details and playlist_details["owner"]["id"] == self.userid:
                 contextitems.append(
                     (
-                        f"{self.addon.getLocalizedString(REMOVE_FROM_PLAYLIST_STR_ID)} {playlist_details['name']}",
+                        f"{self.addon.getLocalizedString(REMOVE_FROM_PLAYLIST_STR_ID)}"
+                        f" {playlist_details['name']}",
                         "RunPlugin(plugin://plugin.audio.spotify/"
                         "?action=remove_track_from_playlist&trackid="
                         f"{real_trackuri}&playlistid={playlist_details['id']})",
                     )
                 )
+
+            contextitems.append(
+                (
+                    "MyPlay",  # xbmc.getLocalizedString(14098),
+                    "RunPlugin(plugin://plugin.audio.spotify/"
+                    f"?action=play_track&trackid={real_trackuri})",
+                )
+            )
 
             contextitems.append(
                 (
@@ -1185,7 +1223,8 @@ class PluginContent:
                     (
                         self.addon.getLocalizedString(UNFOLLOW_PLAYLIST_STR_ID),
                         "RunPlugin(plugin://plugin.audio.spotify/"
-                        f"?action=unfollow_playlist&playlistid={item['id']}&ownerid={item['owner']['id']})",
+                        f"?action=unfollow_playlist&playlistid={item['id']}"
+                        f"&ownerid={item['owner']['id']})",
                     )
                 )
             elif item["owner"]["id"] != self.userid:
@@ -1193,7 +1232,8 @@ class PluginContent:
                     (
                         self.addon.getLocalizedString(FOLLOW_PLAYLIST_STR_ID),
                         "RunPlugin(plugin://plugin.audio.spotify/"
-                        f"?action=follow_playlist&playlistid={item['id']}&ownerid={item['owner']['id']})",
+                        f"?action=follow_playlist&playlistid={item['id']}"
+                        f"&ownerid={item['owner']['id']})",
                     )
                 )
 

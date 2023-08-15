@@ -1,6 +1,3 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-
 """
     plugin.audio.spotify
     Spotify player for Kodi
@@ -12,115 +9,96 @@ import time
 
 import xbmc
 import xbmcaddon
-import xbmcgui
+from xbmc import LOGDEBUG
 
-from deps import spotipy
+import utils
 from httpproxy import ProxyRunner
-from utils import log_msg, ADDON_ID, get_token, Spotty
+from save_recently_played import SaveRecentlyPlayed
+from spotty import Spotty
+from spotty_audio_streamer import SpottyAudioStreamer
+from spotty_auth import SpottyAuth
+from spotty_helper import SpottyHelper
+from utils import log_msg, ADDON_ID
+
+SAVE_TO_RECENTLY_PLAYED_FILE = True
+
+
+def abort_app(timeout_in_secs: int) -> bool:
+    return xbmc.Monitor().waitForAbort(timeout_in_secs)
 
 
 class MainService:
-    """our main background service running the various threads"""
-
     def __init__(self):
         log_msg(f"Spotify plugin version: {xbmcaddon.Addon(id=ADDON_ID).getAddonInfo('version')}.")
 
-        self.current_user = None
-        self.auth_token = None
-        self.addon = xbmcaddon.Addon(id=ADDON_ID)
-        self.win = xbmcgui.Window(10000)
-        self.kodimonitor = xbmc.Monitor()
-        self.spotty = Spotty()
+        self.__spotty_helper = SpottyHelper()
 
-        # Spotipy and the webservice are always pre-started in the background.
-        # The auth key for spotipy will be set afterward.
-        # The webserver is also used for the authentication callbacks from spotify api.
-        self.sp = spotipy.Spotify()
+        spotty = Spotty()
+        spotty.set_spotty_paths(
+            self.__spotty_helper.spotty_binary_path, self.__spotty_helper.spotty_cache_path
+        )
+        spotty.set_spotify_user(
+            self.__spotty_helper.spotify_username, self.__spotty_helper.spotify_password
+        )
 
-        self.proxy_runner = ProxyRunner(self.spotty)
-        self.proxy_runner.start()
-        webport = self.proxy_runner.get_port()
-        log_msg(f"Started webproxy at port {webport}.")
+        self.__spotty_auth = SpottyAuth(spotty)
+        self.__auth_token = None
 
-        # Authenticate at startup.
-        self.renew_token()
+        self.__spotty_streamer = SpottyAudioStreamer(spotty)
+        self.__save_recently_played = SaveRecentlyPlayed()
+        self.__spotty_streamer.set_notify_track_finished(self.__save_track_to_recently_played)
 
-        # Start mainloop.
-        self.main_loop()
+        self.__proxy_runner = ProxyRunner(self.__spotty_streamer)
 
-    def main_loop(self):
-        """main loop which keeps our threads alive and refreshes the token"""
-        loop_timer = 5
-        while not self.kodimonitor.waitForAbort(loop_timer):
-            # Monitor logged in user.
-            cmd = self.win.getProperty("spotify-cmd")
-            if cmd == "__LOGOUT__":
-                log_msg("logout cmd received")
-                self.win.clearProperty("spotify-cmd")
-                self.current_user = None
-                self.auth_token = None
-                self.switch_user()
-            elif not self.auth_token:
-                # We do not yet have a token.
-                log_msg("retrieving token...")
-                if self.renew_token():
-                    xbmc.executebuiltin("Container.Refresh")
-            elif self.auth_token and (self.auth_token["expires_at"] - 60) <= (int(time.time())):
-                log_msg("Token needs to be refreshed.")
-                self.renew_token()
-            else:
-                loop_timer = 5
+    def __save_track_to_recently_played(self, track_id: str) -> None:
+        if SAVE_TO_RECENTLY_PLAYED_FILE:
+            self.__save_recently_played.save_track(track_id)
 
-        # End of loop: we should exit.
-        self.close()
+    def run(self):
+        log_msg("Starting main service loop.")
 
-    def close(self):
-        """shutdown, perform cleanup"""
-        log_msg("Shutdown requested!", xbmc.LOGINFO)
-        self.spotty.kill_spotty()
-        self.proxy_runner.stop()
-        del self.addon
-        del self.kodimonitor
-        del self.win
-        log_msg("Stopped.", xbmc.LOGINFO)
+        self.__proxy_runner.start()
+        log_msg(f"Started web proxy at port {self.__proxy_runner.get_port()}.")
 
-    def switch_user(self):
-        """called whenever we switch to a different user/credentials"""
-        log_msg("Login credentials changed.")
-        if self.renew_token():
-            xbmc.executebuiltin("Container.Refresh")
+        self.__renew_token()
 
-    def get_username(self):
-        """get the current configured/setup username"""
-        username = self.spotty.get_username()
-        if not username:
-            username = self.addon.getSetting("username")
+        loop_counter = 0
+        loop_wait_in_secs = 6
+        while True:
+            loop_counter += 1
+            if (loop_counter % 10) == 0:
+                log_msg(f"Main loop continuing. Loop counter: {loop_counter}.")
 
-        return username
+            # Monitor authorization.
+            if (self.__auth_token["expires_at"] - 60) <= (int(time.time())):
+                expire_time = self.__auth_token["expires_at"]
+                time_now = int(time.time())
+                log_msg(f"Spotify token expired. Expire time: {expire_time}; time now: {time_now}.")
+                log_msg("Refreshing auth token now.")
+                self.__renew_token()
 
-    def renew_token(self):
-        """refresh/retrieve the token"""
-        result = False
-        auth_token = None
-        username = self.get_username()
+            if abort_app(loop_wait_in_secs):
+                break
 
-        if username:
-            # Stop the connect daemon and retrieve token.
-            log_msg("Retrieving auth token....")
-            auth_token = get_token(self.spotty)
+        self.__close()
 
-        if auth_token:
-            log_msg("Retrieved auth token.")
-            self.auth_token = auth_token
-            # Only update token info in spotipy object.
-            self.sp._auth = auth_token["access_token"]
-            me = self.sp.me()
-            self.current_user = me["id"]
-            log_msg(f"Logged into Spotify - Username: {self.current_user}", xbmc.LOGINFO)
-            # Store auth_token and username as a window property for easy access by plugin entry.
-            self.win.setProperty("spotify-token", auth_token["access_token"])
-            self.win.setProperty("spotify-username", self.current_user)
-            self.win.setProperty("spotify-country", me["country"])
-            result = True
+    def __close(self):
+        log_msg("Shutdown requested.")
+        self.__spotty_helper.kill_all_spotties()
+        self.__proxy_runner.stop()
+        log_msg("Main service stopped.")
 
-        return result
+    def __renew_token(self):
+        log_msg("Retrieving auth token....", LOGDEBUG)
+        auth_token = self.__spotty_auth.get_token()
+        if not auth_token:
+            raise Exception("Could not get Spotify auth token.")
+
+        self.__auth_token = auth_token
+        expire_time = time.strftime(
+            "%Y-%m-%d %H:%M:%S", time.localtime(float(self.__auth_token["expires_at"]))
+        )
+        log_msg(f"Retrieved Spotify auth token. Expires at {expire_time}.")
+
+        # Cache auth token for easy access by the plugin.
+        utils.cache_auth_token(self.__auth_token["access_token"])
