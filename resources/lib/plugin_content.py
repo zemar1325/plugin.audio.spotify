@@ -8,11 +8,11 @@ import xbmc
 import xbmcaddon
 import xbmcgui
 import xbmcplugin
-from simplecache import SimpleCache
 
-from string_ids import *
 import utils
 from deps import spotipy
+from simplecache import SimpleCache
+from string_ids import *
 from utils import ADDON_ID, PROXY_PORT, log_exception, log_msg, get_chunks
 
 PlayList = Dict[str, Union[str, Dict[str, List[Any]]]]
