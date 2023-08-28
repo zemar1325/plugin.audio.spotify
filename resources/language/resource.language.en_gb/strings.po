@@ -155,3 +155,17 @@ msgid ""
 "To give better audio streaming from Spotify, a video http rule was just added to 'userdata/playercorefactory.xml'.\n"
 "Please restart Kodi for this to take affect."
 msgstr ""
+
+msgctxt "#11072"
+msgid "Clear the plugin cache"
+msgstr ""
+
+msgctxt "#11073"
+msgid "Followed artists"
+msgstr ""
+
+msgctxt "#11074"
+msgid ""
+"Successfully cleared the plugin cache database.\n"
+"Please restart Kodi for this to take affect."
+msgstr ""
