@@ -143,6 +143,7 @@ class PluginContent:
         """simple cache checksum based on a few most important values"""
         result = self.__cached_checksum
         if not result:
+            # log_msg("__cached_checksum not found. Getting a new one.")
             saved_tracks = self.__get_saved_track_ids()
             saved_albums = self.__get_saved_album_ids()
             followed_artists = self.__get_followed_artists()
@@ -152,6 +153,7 @@ class PluginContent:
                 f"-{generic_checksum}"
             )
             self.__cached_checksum = result
+            # log_msg(f"New __cached_checksum = '{self.__cached_checksum}'.")
 
         if opt_value:
             result += f"-{opt_value}"
@@ -184,6 +186,7 @@ class PluginContent:
 
     def refresh_listing(self) -> None:
         self.__addon.setSetting("cache_checksum", time.strftime("%Y%m%d%H%M%S", time.gmtime()))
+        log_msg(f"New cache_checksum = \'{self.__addon.getSetting('cache_checksum')}\'")
         xbmc.executebuiltin("Container.Refresh")
 
     def __add_track_listitems(self, tracks, append_artist_to_label: bool = False) -> None:
@@ -543,6 +546,7 @@ class PluginContent:
         # Get from cache first.
         cache_str = f"spotify.playlistdetails.{playlist['id']}"
         checksum = self.__cache_checksum(playlist["tracks"]["total"])
+        # log_msg(f"Playlist cache_str = '{cache_str}', checksum = '{checksum}'.")
         playlist_details = self.cache.get(cache_str, checksum=checksum)
         if not playlist_details:
             # Get listing from api.
@@ -563,7 +567,9 @@ class PluginContent:
                 tracks=playlist_details["tracks"]["items"], playlist_details=playlist
             )
             # log_msg(f"playlist_details = {playlist_details}")
+            checksum = self.__cache_checksum(playlist["tracks"]["total"])
             self.cache.set(cache_str, playlist_details, checksum=checksum)
+            # log_msg(f"Got new playlist - checksum = '{checksum}'")
 
         return playlist_details
 
@@ -951,7 +957,7 @@ class PluginContent:
             contextitems.append(
                 (
                     self.__addon.getLocalizedString(REFRESH_LISTING_STR_ID),
-                    f"RunPlugin(plugin://{ADDON_ID}/" f"?action={self.refresh_listing})",
+                    f"RunPlugin(plugin://{ADDON_ID}/" f"?action={self.refresh_listing.__name__})",
                 )
             )
             track["contextitems"] = contextitems
