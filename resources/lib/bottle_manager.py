@@ -7,9 +7,7 @@ import bottle
 from bottle import Bottle
 from utils import log_msg, log_exception, LOGDEBUG
 
-
-# Need this copy of 'bottle.WSGIRefServer' to add a 'shutdown' method,
-# so we can do a clean shutdown of the bottle app.
+STREAMING_TIMEOUT_IN_SECS = 600
 
 
 def __bottle_stderr(*args):
@@ -19,10 +17,12 @@ def __bottle_stderr(*args):
 bottle._stderr = __bottle_stderr
 
 
+# Need this copy of 'bottle.WSGIRefServer' to add a 'shutdown' method, so we can do a
+# clean shutdown of the bottle app.
 class MyWSGIRefServer(bottle.WSGIRefServer):
     def __init__(self, host: str = "", port: int = 0):
         super().__init__(host, port)
-        self.srv = None
+        self.__server = None
 
     def run(self, app) -> None:
         class FixedHandler(WSGIRequestHandler):
@@ -46,14 +46,21 @@ class MyWSGIRefServer(bottle.WSGIRefServer):
 
                 server_cls = AddressFamilyServerCls
 
+        # CHANGE (1) TO THE ORIGINAL BOTTLE CLASS METHOD!
+        server_cls.timeout = STREAMING_TIMEOUT_IN_SECS
+
         srv = make_server(self.host, self.port, app, server_cls, handler_cls)
-        # THIS IS THE ONLY CHANGE TO THE ORIGINAL BOTTLE CLASS METHOD!
-        self.srv = srv
+        # CHANGE (2) TO THE ORIGINAL BOTTLE CLASS METHOD!
+        self.__server = srv
+
+        log_msg(f"Starting wsgiref web server, timeout = {self.__server.timeout}.")
+
         srv.serve_forever()
 
-    # ADDED SERVER SHUTDOWN METHOD.
+    # HERE'S THE ADDED SERVER SHUTDOWN METHOD.
     def shutdown(self) -> None:
-        self.srv.shutdown()
+        log_msg("Shutdown wsgiref server requested...")
+        self.__server.shutdown()
 
 
 __server: MyWSGIRefServer = MyWSGIRefServer()
