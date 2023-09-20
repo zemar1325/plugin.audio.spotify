@@ -16,14 +16,19 @@ class SpottyHelper:
         self.spotty_binary_path = self.__get_spotty_path()
         self.spotty_cache_path = f"{ADDON_DATA_PATH}/spotty-cache"
 
+    def get_username(self) -> str:
         addon = xbmcaddon.Addon(id=ADDON_ID)
-        self.spotify_username = addon.getSetting("username")
-        self.spotify_password = addon.getSetting("password")
-
-        if not self.spotify_username:
+        spotify_username = addon.getSetting("username")
+        if not spotify_username:
             raise Exception("Could not get spotify username.")
-        if not self.spotify_password:
+        return spotify_username
+
+    def get_password(self) -> str:
+        addon = xbmcaddon.Addon(id=ADDON_ID)
+        spotify_password = addon.getSetting("password")
+        if not spotify_password:
             raise Exception("Could not get spotify password.")
+        return spotify_password
 
     def kill_all_spotties(self) -> None:
         if platform.system() == "Windows":

@@ -11,7 +11,7 @@ from typing import Dict
 import xbmc
 import xbmcaddon
 import xbmcgui
-from xbmc import LOGDEBUG
+from xbmc import LOGDEBUG, LOGWARNING
 
 import bottle_manager
 import utils
@@ -51,15 +51,12 @@ class MainService:
 
         self.__spotty_helper: SpottyHelper = SpottyHelper()
 
-        spotty = Spotty()
-        spotty.set_spotty_paths(
+        self.__spotty = Spotty()
+        self.__spotty.set_spotty_paths(
             self.__spotty_helper.spotty_binary_path, self.__spotty_helper.spotty_cache_path
         )
-        spotty.set_spotify_user(
-            self.__spotty_helper.spotify_username, self.__spotty_helper.spotify_password
-        )
 
-        self.__spotty_auth: SpottyAuth = SpottyAuth(spotty)
+        self.__spotty_auth: SpottyAuth = SpottyAuth(self.__spotty)
         self.__auth_token: Dict[str, str] = dict()
 
         # Workaround to make Kodi use it's VideoPlayer to play http audio streams.
@@ -68,7 +65,7 @@ class MainService:
 
         gap_between_tracks = int(SPOTIFY_ADDON.getSetting("gap_between_playlist_tracks"))
         self.__http_spotty_streamer: HTTPSpottyAudioStreamer = HTTPSpottyAudioStreamer(
-            spotty, gap_between_tracks
+            self.__spotty, gap_between_tracks
         )
         self.__save_recently_played: SaveRecentlyPlayed = SaveRecentlyPlayed()
         self.__http_spotty_streamer.set_notify_track_finished(self.__save_track_to_recently_played)
@@ -124,7 +121,9 @@ class MainService:
         self.__auth_token = self.__get_retry_auth_token()
         if not self.__auth_token:
             utils.cache_auth_token("")
-            raise Exception("Could not get Spotify auth token.")
+            raise Exception(
+                f"Could not get Spotify auth token for user '{self.__spotty_helper.get_username()}'."
+            )
 
         log_msg(
             f"Retrieved Spotify auth token."
@@ -136,15 +135,25 @@ class MainService:
 
     def __get_retry_auth_token(self) -> Dict[str, str]:
         auth_token = None
-        count = 5
-        while count > 0:
-            auth_token = self.__spotty_auth.get_token()
+        max_retries = 20
+        count = 0
+        while count < max_retries:
+            auth_token = self.__get_token()
             if auth_token:
                 break
             time.sleep(1)
-            count -= 1
+            count += 1
+
+        if count > 0:
+            log_msg(f"Took {count} retries to get authorization token.", LOGWARNING)
 
         return auth_token
+
+    def __get_token(self) -> Dict[str, str]:
+        self.__spotty.set_spotify_user(
+            self.__spotty_helper.get_username(), self.__spotty_helper.get_password()
+        )
+        return self.__spotty_auth.get_token()
 
     @staticmethod
     def __get_time_str(raw_time: int) -> str:
