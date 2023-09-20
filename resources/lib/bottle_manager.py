@@ -1,4 +1,5 @@
 import socket
+import socketserver
 import threading
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer
 from wsgiref.simple_server import make_server
@@ -15,6 +16,10 @@ def __bottle_stderr(*args):
 
 
 bottle._stderr = __bottle_stderr
+
+
+class ThreadedWSGIServer(socketserver.ThreadingMixIn, WSGIServer):
+    pass
 
 
 # Need this copy of 'bottle.WSGIRefServer' to add a 'shutdown' method, so we can do a
@@ -35,7 +40,7 @@ class MyWSGIRefServer(bottle.WSGIRefServer):
                     return WSGIRequestHandler.log_request(*args, **kw)
 
         handler_cls = self.options.get("handler_class", FixedHandler)
-        server_cls = self.options.get("server_class", WSGIServer)
+        server_cls = self.options.get("server_class", ThreadedWSGIServer)
 
         if ":" in self.host:
             # Fix wsgiref for IPv6 addresses.

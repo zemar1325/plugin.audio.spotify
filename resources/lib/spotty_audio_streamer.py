@@ -37,6 +37,7 @@ class SpottyAudioStreamer:
 
         self.__notify_track_finished: Callable[[str], None] = lambda x: None
         self.__last_spotty_pid = -1
+        self.__terminated = False
 
     def get_track_length(self) -> int:
         return self.__track_length
@@ -52,21 +53,26 @@ class SpottyAudioStreamer:
     def set_notify_track_finished(self, func: Callable[[str], None]) -> None:
         self.__notify_track_finished = func
 
-    def send_audio_stream(self, range_l: int) -> str:
-        return self.send_part_audio_stream(self.__track_length, range_l)
+    def terminate_stream(self) -> bool:
+        self.__terminated = True
+        if self.__last_spotty_pid == -1:
+            return False
+        self.__kill_last_spotty()
+        return True
 
-    def send_part_audio_stream(self, range_len: int, range_l: int) -> str:
+    def send_part_audio_stream(self, range_len: int, range_begin: int) -> str:
         """Chunked transfer of audio data from spotty binary"""
 
+        self.__terminated = False
         spotty_process = None
         bytes_sent = 0
         try:
             self.__kill_last_spotty()
 
-            self.__log_start_transfer(range_l)
+            self.__log_start_transfer(range_begin)
 
             # Send the wav header.
-            if range_l == 0:
+            if range_begin == 0:
                 bytes_sent = len(self.__wav_header)
                 self.__log_send_wav_header()
                 yield self.__wav_header
@@ -80,16 +86,21 @@ class SpottyAudioStreamer:
                 track_id_uri,
             ]
             spotty_process = self.__spotty.run_spotty(args, use_creds=True)
-            self.__log_spotty_returncode(spotty_process)
+            self.__log_spotty_return_code(spotty_process)
             self.__last_spotty_pid = spotty_process.pid
 
             # Ignore the first x bytes to match the range request.
-            if range_l != 0:
-                spotty_process.stdout.read(range_l)
+            if range_begin != 0:
+                spotty_process.stdout.read(range_begin)
 
             # Loop as long as there's something to output.
             while bytes_sent < range_len:
+                if self.__terminated:
+                    return
+
                 frame = spotty_process.stdout.read(SPOTTY_AUDIO_CHUNK_SIZE)
+                if self.__terminated:
+                    return
                 if not frame:
                     log_msg("Nothing read from stdout.", LOGERROR)
                     break
@@ -100,10 +111,10 @@ class SpottyAudioStreamer:
 
             # All done.
             self.__notify_track_finished(self.__track_id)
-            self.__log_finished_sending(range_l, bytes_sent)
+            self.__log_finished_sending(range_begin, bytes_sent)
 
         except Exception as ex:
-            self.__log_exception_sending(ex, range_l, bytes_sent)
+            self.__log_exception_sending(ex, range_begin, bytes_sent)
         finally:
             # Make sure spotty always gets terminated.
             if spotty_process:
@@ -119,9 +130,9 @@ class SpottyAudioStreamer:
         kill_process_by_pid(self.__last_spotty_pid)
         self.__last_spotty_pid = -1
 
-    def __log_start_transfer(self, range_l: int) -> None:
+    def __log_start_transfer(self, range_begin: int) -> None:
         log_msg(
-            f"Start transfer for track '{self.__track_id}' - range start: {range_l}",
+            f"Start transfer for track '{self.__track_id}' - range begin: {range_begin}",
             LOGDEBUG,
         )
 
@@ -145,23 +156,25 @@ class SpottyAudioStreamer:
             LOGDEBUG,
         )
 
-    def __log_finished_sending(self, range_l: int, bytes_sent: int) -> None:
+    def __log_finished_sending(self, range_begin: int, bytes_sent: int) -> None:
         log_msg(
             f"Finished sending track '{self.__track_id}'"
-            f" - range start {range_l} - range end {bytes_sent} - {self.__get_mb_str(bytes_sent)}.",
+            f" - range begin {range_begin}"
+            f" - range end {bytes_sent} - {self.__get_mb_str(bytes_sent)}.",
             LOGDEBUG,
         )
 
-    def __log_exception_sending(self, ex: Exception, range_l: int, bytes_sent: int) -> None:
+    def __log_exception_sending(self, ex: Exception, range_begin: int, bytes_sent: int) -> None:
         log_msg(
             f"EXCEPTION sending track '{self.__track_id}'"
-            f" - range start {range_l} - range end {bytes_sent} - {self.__get_mb_str(bytes_sent)}.",
+            f" - range begin {range_begin}"
+            f" - range end {bytes_sent} - {self.__get_mb_str(bytes_sent)}.",
             LOGERROR,
         )
         log_msg(f"Exception: {ex}")
 
     @staticmethod
-    def __log_spotty_returncode(spotty_process: subprocess.Popen) -> None:
+    def __log_spotty_return_code(spotty_process: subprocess.Popen) -> None:
         if spotty_process.returncode:
             log_msg(
                 f"Spotty process return code: {spotty_process.returncode}",
