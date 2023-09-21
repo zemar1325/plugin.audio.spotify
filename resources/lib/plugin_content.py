@@ -57,7 +57,7 @@ class PluginContent:
 
     def __init__(self):
         try:
-            self.cache: simplecache.SimpleCache = simplecache.SimpleCache()
+            self.cache: simplecache.SimpleCache = simplecache.SimpleCache(ADDON_ID)
 
             self.append_artist_to_title: bool = (
                 self.__addon.getSetting("appendArtistToTitle") == "true"
@@ -173,7 +173,7 @@ class PluginContent:
 
     def delete_cache_db(self) -> None:
         log_msg("Deleting plugin cache...")
-        simple_db_cache_addon = xbmcaddon.Addon(simplecache.ADDON_ID)
+        simple_db_cache_addon = xbmcaddon.Addon(ADDON_ID)
         db_path = simple_db_cache_addon.getAddonInfo("profile")
         db_file = xbmcvfs.translatePath(f"{db_path}/simplecache.db")
         os.remove(db_file)
