@@ -55,6 +55,7 @@ class MainService:
         self.__spotty.set_spotty_paths(
             self.__spotty_helper.spotty_binary_path, self.__spotty_helper.spotty_cache_path
         )
+        self.__spotty.set_spotty_env(self.__spotty_helper.spotty_rust_env)
 
         self.__spotty_auth: SpottyAuth = SpottyAuth(self.__spotty)
         self.__auth_token: Dict[str, str] = dict()
@@ -122,7 +123,8 @@ class MainService:
         if not self.__auth_token:
             utils.cache_auth_token("")
             raise Exception(
-                f"Could not get Spotify auth token for user '{self.__spotty_helper.get_username()}'."
+                f"Could not get Spotify auth token for"
+                f" user '{self.__spotty_helper.get_username()}'."
             )
 
         log_msg(

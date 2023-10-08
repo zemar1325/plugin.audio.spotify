@@ -1,5 +1,6 @@
 import os
 import platform
+import shutil
 import stat
 import subprocess
 from typing import Union
@@ -8,13 +9,20 @@ import xbmc
 import xbmcaddon
 from xbmc import LOGERROR
 
+import spotty
 from utils import log_msg, log_exception, ADDON_ID, ADDON_DATA_PATH
+
+SPOTTY_SUBDIR = "deps/spotty"
 
 
 class SpottyHelper:
     def __init__(self):
         self.spotty_binary_path = self.__get_spotty_path()
         self.spotty_cache_path = f"{ADDON_DATA_PATH}/spotty-cache"
+
+        self.spotty_rust_env = os.environ.copy()
+        if xbmc.getCondVisibility("System.Platform.Android"):
+            self.spotty_rust_env["TMPDIR"] = spotty.KODI_ANDROID_INTERNAL_WRITABLE_DIR
 
     def get_username(self) -> str:
         addon = xbmcaddon.Addon(id=ADDON_ID)
@@ -45,31 +53,14 @@ class SpottyHelper:
         spotty_path = None
         if xbmc.getCondVisibility("System.Platform.Windows"):
             spotty_path = os.path.join(
-                os.path.dirname(__file__), "deps/spotty", "windows", "spotty.exe"
+                os.path.dirname(__file__), SPOTTY_SUBDIR, "windows", "spotty.exe"
             )
         elif xbmc.getCondVisibility("System.Platform.OSX"):
-            spotty_path = os.path.join(os.path.dirname(__file__), "deps/spotty", "macos", "spotty")
-        elif xbmc.getCondVisibility("System.Platform.Linux + !System.Platform.Android"):
-            architecture = platform.machine()
-            log_msg(f"Reported architecture: '{architecture}'.")
-            if architecture.startswith("AMD64") or architecture.startswith("x86_64"):
-                # Generic linux x86_64 binary.
-                spotty_path = os.path.join(
-                    os.path.dirname(__file__), "deps/spotty", "x86-linux", "spotty-x86_64"
-                )
-            else:
-                # When we're unsure about the platform/cpu, try by testing to get
-                # the correct binary path.
-                paths = [
-                    os.path.join(
-                        os.path.dirname(__file__), "deps/spotty", "arm-linux", "spotty-muslhf"
-                    ),
-                    os.path.join(os.path.dirname(__file__), "deps/spotty", "x86-linux", "spotty"),
-                ]
-                for binary_path in paths:
-                    if SpottyHelper.__test_spotty(binary_path):
-                        spotty_path = binary_path
-                        break
+            spotty_path = os.path.join(os.path.dirname(__file__), SPOTTY_SUBDIR, "macos", "spotty")
+        elif xbmc.getCondVisibility("System.Platform.Android"):
+            spotty_path = SpottyHelper.__get_android_spotty_path()
+        elif xbmc.getCondVisibility("System.Platform.Linux"):
+            spotty_path = SpottyHelper.__get_linux_spotty_path()
 
         if not spotty_path:
             log_msg(
@@ -85,6 +76,57 @@ class SpottyHelper:
 
         return spotty_path
 
+    @staticmethod
+    def __get_android_spotty_path() -> Union[str, None]:
+        spotty_path = None
+
+        # Try by testing to get the correct binary path.
+        candidate_paths = [
+            ("arm-android", "spotty"),
+            ("arm-android", "spotty-aarch64"),
+            ("x86-android", "spotty"),
+            ("x86-android", "spotty-x86_64"),
+        ]
+        for path in candidate_paths:
+            binary = os.path.join(os.path.dirname(__file__), SPOTTY_SUBDIR, path[0], path[1])
+            test_binary = os.path.join(spotty.KODI_ANDROID_INTERNAL_WRITABLE_DIR, "spotty")
+            shutil.copyfile(binary, test_binary)
+            os.chmod(test_binary, stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
+            if SpottyHelper.__test_spotty(test_binary):
+                spotty_path = test_binary
+                log_msg(f"Found candidate spotty path: '{binary}'.")
+                break
+            os.remove(test_binary)
+
+        return spotty_path
+
+    @staticmethod
+    def __get_linux_spotty_path() -> Union[str, None]:
+        spotty_path = None
+
+        architecture = platform.machine()
+        log_msg(f"Reported architecture: '{architecture}'.")
+        if architecture.startswith("AMD64") or architecture.startswith("x86_64"):
+            # Generic linux x86_64 binary.
+            spotty_path = os.path.join(
+                os.path.dirname(__file__), SPOTTY_SUBDIR, "x86-linux", "spotty-x86_64"
+            )
+        else:
+            # When we're unsure about the platform/cpu, try by testing to get
+            # the correct binary path.
+            candidate_paths = [
+                ("arm-linux", "spotty-muslhf"),
+                ("arm-linux", "spotty"),
+                ("x86-linux", "spotty"),
+            ]
+            for path in candidate_paths:
+                binary = os.path.join(os.path.dirname(__file__), SPOTTY_SUBDIR, path[0], path[1])
+                if SpottyHelper.__test_spotty(binary):
+                    spotty_path = binary
+                    break
+
+        return spotty_path
+
     @classmethod
     def __test_spotty(cls, binary_path: str) -> bool:
         """self-test spotty binary"""
@@ -97,7 +139,7 @@ class SpottyHelper:
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
-            spotty = subprocess.Popen(
+            test_spotty = subprocess.Popen(
                 args,
                 startupinfo=startupinfo,
                 stdout=subprocess.PIPE,
@@ -105,7 +147,7 @@ class SpottyHelper:
                 bufsize=0,
             )
 
-            stdout, stderr = spotty.communicate()
+            stdout, stderr = test_spotty.communicate()
 
             log_msg(stdout.decode(encoding="UTF-8"))
 
