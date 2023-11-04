@@ -18,11 +18,13 @@ SPOTTY_GAIN_TYPE = "track"
 SPOTTY_STREAMING_DEFAULT_ARGS = [
     "--bitrate",
     SPOTIFY_BITRATE,
+    "--initial-volume",
+    SPOTTY_INITIAL_VOLUME,
+]
+SPOTTY_STREAMING_NORMALIZATION_ARGS = [
     "--enable-volume-normalisation",
     "--normalisation-gain-type",
     SPOTTY_GAIN_TYPE,
-    "--initial-volume",
-    SPOTTY_INITIAL_VOLUME,
 ]
 
 
@@ -38,6 +40,8 @@ class SpottyAudioStreamer:
         self.__notify_track_finished: Callable[[str], None] = lambda x: None
         self.__last_spotty_pid = -1
         self.__terminated = False
+
+        self.use_normalization = True
 
     def get_track_length(self) -> int:
         return self.__track_length
@@ -85,6 +89,8 @@ class SpottyAudioStreamer:
                 "--single-track",
                 track_id_uri,
             ]
+            if self.use_normalization:
+                args += SPOTTY_STREAMING_NORMALIZATION_ARGS
             spotty_process = self.__spotty.run_spotty(args, use_creds=True)
             self.__log_spotty_return_code(spotty_process)
             self.__last_spotty_pid = spotty_process.pid
@@ -135,6 +141,7 @@ class SpottyAudioStreamer:
             f"Start transfer for track '{self.__track_id}' - range begin: {range_begin}",
             LOGDEBUG,
         )
+        log_msg(f"Use Spotify normalization: {self.use_normalization}.", LOGDEBUG)
 
     def __log_send_wav_header(self) -> None:
         log_msg(

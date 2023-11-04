@@ -176,3 +176,7 @@ msgid ""
 msgstr ""
 "Successfully cleared the plugin cache database.\n"
 "Please restart Kodi for this to take affect."
+
+msgctxt "#11075"
+msgid "Use Spotify normalization when playing tracks"
+msgstr ""

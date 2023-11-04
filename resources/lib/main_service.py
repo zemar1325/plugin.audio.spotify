@@ -65,8 +65,9 @@ class MainService:
         add_http_video_rule()
 
         gap_between_tracks = int(SPOTIFY_ADDON.getSetting("gap_between_playlist_tracks"))
+        use_spotify_normalization = SPOTIFY_ADDON.getSetting("use_spotify_normalization").lower() == "true"
         self.__http_spotty_streamer: HTTPSpottyAudioStreamer = HTTPSpottyAudioStreamer(
-            self.__spotty, gap_between_tracks
+            self.__spotty, gap_between_tracks, use_spotify_normalization
         )
         self.__save_recently_played: SaveRecentlyPlayed = SaveRecentlyPlayed()
         self.__http_spotty_streamer.set_notify_track_finished(self.__save_track_to_recently_played)
@@ -91,6 +92,10 @@ class MainService:
             loop_counter += 1
             if (loop_counter % 10) == 0:
                 log_msg(f"Main loop continuing. Loop counter: {loop_counter}.")
+
+            self.__http_spotty_streamer.use_normalization(
+                SPOTIFY_ADDON.getSetting("use_spotify_normalization").lower() == "true"
+            )
 
             # Monitor authorization.
             if (int(self.__auth_token["expires_at"]) - 60) <= (int(time.time())):

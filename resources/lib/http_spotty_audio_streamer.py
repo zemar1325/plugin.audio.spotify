@@ -9,13 +9,18 @@ from utils import log_msg, LOGDEBUG
 
 
 class HTTPSpottyAudioStreamer:
-    def __init__(self, spotty: Spotty, gap_between_tracks: int = 0):
+    def __init__(self, spotty: Spotty, gap_between_tracks: int = 0, use_normalization: bool = True):
         self.__spotty: Spotty = spotty
         self.__gap_between_tracks: int = gap_between_tracks
 
         self.__spotty_streamer: SpottyAudioStreamer = SpottyAudioStreamer(self.__spotty)
+        self.__spotty_streamer.use_normalization = use_normalization
+
         self.__is_streaming = False
         self.__stream_lock = threading.Lock()
+
+    def use_normalization(self, value):
+        self.__spotty_streamer.use_normalization = value
 
     def set_notify_track_finished(self, func: Callable[[str], None]) -> None:
         self.__spotty_streamer.set_notify_track_finished(func)
