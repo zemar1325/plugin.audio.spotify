@@ -21,6 +21,7 @@ from save_recently_played import SaveRecentlyPlayed
 from spotty import Spotty
 from spotty_auth import SpottyAuth
 from spotty_helper import SpottyHelper
+from connect_helper import ConnectHelper
 from string_ids import HTTP_VIDEO_RULE_ADDED_STR_ID
 from utils import PROXY_PORT, log_msg, ADDON_ID
 
@@ -139,6 +140,11 @@ class MainService:
 
         # Cache auth token for easy access by the plugin.
         utils.cache_auth_token(self.__auth_token["access_token"])
+
+        # try starting spotty connect daemon
+        self.connect_daemon = ConnectHelper(self.__spotty)
+        if not self.connect_daemon.daemon_active:
+            self.connect_daemon.start()
 
     def __get_retry_auth_token(self) -> Dict[str, str]:
         auth_token = None
